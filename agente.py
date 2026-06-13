@@ -1,13 +1,18 @@
+import json
+import os
 import ollama
 from tools import filesystem, calendario, configuracion
 
 MODELO = "qwen2.5:7b"
 
+RUTA_MEMORIA = os.path.join(os.path.dirname(__file__), "memoria.json")
+MAX_TURNOS = 40
+
 MENSAJE_SISTEMA = {
     "role": "system",
     "content": (
         "Eres un asistente que automatiza tareas en la computadora del usuario "
-        "usando las herramientas disponibles. Cuando el usuario pida crear algo, "
+        "usando las herramientas disponibles. Cuando el usuario pida crear o buscar algo, "
         "usa la herramienta adecuada. Las fechas van en formato AAAA-MM-DD y las "
         "horas en formato HH:MM de 24 horas. Responde siempre en español."
     ),
@@ -17,6 +22,7 @@ FUNCIONES = {
     "crear_carpeta": filesystem.crear_carpeta,
     "crear_proyecto": filesystem.crear_proyecto,
     "crear_nota": filesystem.crear_nota,
+    "buscar_archivos": filesystem.buscar_archivos,
     "crear_evento": calendario.crear_evento,
     "generar_config": configuracion.generar_config,
 }
@@ -73,6 +79,21 @@ HERRAMIENTAS = [
     {
         "type": "function",
         "function": {
+            "name": "buscar_archivos",
+            "description": "Busca archivos dentro del workspace por nombre o extensión.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "patron": {"type": "string", "description": "Texto que debe contener el nombre"},
+                    "extension": {"type": "string", "description": "Extensión a filtrar, ej: pdf"},
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "crear_evento",
             "description": "Crea un evento de calendario en formato .ics.",
             "parameters": {
@@ -106,9 +127,8 @@ HERRAMIENTAS = [
 
 
 def procesar(peticion, mensajes):
-    """Procesa una petición del usuario.
-    'mensajes' es la lista de conversación (se va modificando para tener memoria).
-    Devuelve (texto_de_respuesta, lista_de_acciones_ejecutadas)."""
+    """Procesa una petición. 'mensajes' es la lista de conversación (memoria).
+    Devuelve (texto_respuesta, lista_de_acciones)."""
     mensajes.append({"role": "user", "content": peticion})
     acciones = []
 
@@ -133,3 +153,37 @@ def procesar(peticion, mensajes):
                     resultado = f"Error al ejecutar {nombre}: {e}"
             acciones.append(f"{nombre}({argumentos}) -> {resultado}")
             mensajes.append({"role": "tool", "content": resultado})
+
+
+def _turno_serializable(m):
+    """Convierte un mensaje (dict u objeto de ollama) a un turno guardable."""
+    if isinstance(m, dict):
+        role, contenido = m.get("role"), m.get("content")
+    else:
+        role, contenido = getattr(m, "role", None), getattr(m, "content", None)
+    if role in ("user", "assistant") and contenido:
+        return {"role": role, "content": contenido}
+    return None
+
+
+def cargar_memoria():
+    """Devuelve la lista de mensajes inicial: sistema + historial guardado."""
+    mensajes = [MENSAJE_SISTEMA]
+    if os.path.exists(RUTA_MEMORIA):
+        try:
+            with open(RUTA_MEMORIA, encoding="utf-8") as f:
+                turnos = json.load(f)
+            mensajes.extend(turnos[-MAX_TURNOS:])
+        except Exception:
+            pass
+    return mensajes
+
+
+def guardar_memoria(mensajes):
+    """Guarda solo los turnos de texto en memoria.json."""
+    turnos = [t for t in (_turno_serializable(m) for m in mensajes) if t]
+    try:
+        with open(RUTA_MEMORIA, "w", encoding="utf-8") as f:
+            json.dump(turnos[-MAX_TURNOS:], f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass

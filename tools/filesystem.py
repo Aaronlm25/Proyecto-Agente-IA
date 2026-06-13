@@ -35,3 +35,22 @@ def crear_nota(titulo: str, contenido: str = "") -> str:
     archivo = notas / f"{titulo}.md"
     archivo.write_text(f"# {titulo}\n\n{contenido}\n")
     return f"Nota creada: {archivo}"
+
+
+def buscar_archivos(patron: str = "", extension: str = "") -> str:
+    """Busca archivos dentro del workspace.
+    patron: texto que debe contener el nombre (ej: 'vacaciones').
+    extension: filtra por extensión (ej: 'pdf'). Vacío = todas."""
+    if not BASE_DIR.exists():
+        return "El workspace está vacío (aún no se ha creado nada)."
+    encontrados = []
+    for ruta in BASE_DIR.rglob("*"):
+        if ruta.is_file():
+            nombre = ruta.name
+            ok_patron = not patron or patron.lower() in nombre.lower()
+            ok_ext = not extension or nombre.lower().endswith("." + extension.lower().lstrip("."))
+            if ok_patron and ok_ext:
+                encontrados.append(str(ruta.relative_to(BASE_DIR)))
+    if not encontrados:
+        return "No se encontraron archivos que coincidan."
+    return "Archivos encontrados:\n" + "\n".join(f"- {a}" for a in encontrados)
