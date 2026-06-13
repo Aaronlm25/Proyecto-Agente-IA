@@ -1,0 +1,6 @@
+name: mi-agente-ia
+channels:
+  - defaults
+dependencies:
+  - python=3.11
+prefix: /home/aaron/miniconda3/envs/mi-agente-ia
