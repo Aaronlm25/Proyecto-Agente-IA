@@ -1,10 +1,20 @@
 import os
+import sys
 import threading
 import customtkinter as ctk
 import agente
 
+
+def ruta_recurso(rel):
+    """Encuentra archivos tanto en desarrollo como dentro del ejecutable."""
+    base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(base, rel)
+
+
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("blue")
+
+FUENTE = "Helvetica"
 
 COLOR_FONDO = "#1a1a2e"
 COLOR_USUARIO = "#0f3460"
@@ -12,7 +22,8 @@ COLOR_AGENTE = "#16213e"
 COLOR_ACCION = "#1f6f54"
 COLOR_TEXTO = "#e8e8e8"
 COLOR_GRABANDO = "#a83246"
-FUENTE = "Helvetica"
+COLOR_VOZ_ON = "#1f6f54"
+
 
 class ChatApp(ctk.CTk):
     def __init__(self):
@@ -23,13 +34,14 @@ class ChatApp(ctk.CTk):
 
         try:
             import tkinter as tk
-            ruta_icono = os.path.join(os.path.dirname(__file__), "assets", "icono-256.png")
-            self.iconphoto(True, tk.PhotoImage(file=ruta_icono))
+            self.iconphoto(True, tk.PhotoImage(file=ruta_recurso(os.path.join("assets", "icono-256.png"))))
         except Exception as e:
             print("No se pudo cargar el icono:", e)
 
         self.grabadora = None
         self.grabando = False
+        self.voz_activa = False
+        self.modo_conversacion = False
 
         cabecera = ctk.CTkLabel(
             self, text="Agente de IA Local",
@@ -46,20 +58,34 @@ class ChatApp(ctk.CTk):
         self.chat = ctk.CTkScrollableFrame(self, fg_color="transparent")
         self.chat.pack(padx=15, pady=5, fill="both", expand=True)
 
+        # Botón grande de modo conversación
+        self.boton_conversacion = ctk.CTkButton(
+            self, text="Iniciar modo conversación", height=40, corner_radius=12,
+            command=self.alternar_conversacion, font=(FUENTE, 14, "bold"),
+            fg_color=COLOR_USUARIO,
+        )
+        self.boton_conversacion.pack(padx=15, pady=(0, 8), fill="x")
+
         marco = ctk.CTkFrame(self, fg_color=COLOR_AGENTE, corner_radius=14)
-        marco.pack(padx=15, pady=15, fill="x")
+        marco.pack(padx=15, pady=(0, 15), fill="x")
 
         self.boton = ctk.CTkButton(
-            marco, text="Enviar", width=90, corner_radius=10,
+            marco, text="Enviar", width=80, corner_radius=10,
             command=self.enviar, font=(FUENTE, 13, "bold"),
         )
         self.boton.pack(side="right", padx=(0, 8), pady=8)
 
         self.boton_voz = ctk.CTkButton(
-            marco, text="Voz", width=70, corner_radius=10, fg_color=COLOR_USUARIO,
+            marco, text="Voz", width=60, corner_radius=10, fg_color=COLOR_USUARIO,
             command=self.alternar_voz, font=(FUENTE, 13, "bold"),
         )
         self.boton_voz.pack(side="right", padx=(0, 6), pady=8)
+
+        self.boton_altavoz = ctk.CTkButton(
+            marco, text="Altavoz: off", width=90, corner_radius=10, fg_color=COLOR_USUARIO,
+            command=self.alternar_altavoz, font=(FUENTE, 13, "bold"),
+        )
+        self.boton_altavoz.pack(side="right", padx=(0, 6), pady=8)
 
         self.entrada = ctk.CTkEntry(
             marco, placeholder_text="Escribe lo que quieres hacer...",
@@ -68,14 +94,12 @@ class ChatApp(ctk.CTk):
         self.entrada.pack(side="left", fill="x", expand=True, padx=14, pady=10, ipady=4)
         self.entrada.bind("<Return>", lambda e: self.enviar())
 
-        # Cargar memoria persistente y mostrar el historial
         self.mensajes = agente.cargar_memoria()
         turnos = [m for m in self.mensajes
-                  if isinstance(m, dict) and m.get("role") in ("user", "agent", "assistant")]
+                  if isinstance(m, dict) and m.get("role") in ("user", "assistant")]
         if turnos:
             for m in turnos:
-                tipo = "usuario" if m["role"] == "user" else "agente"
-                self._burbuja(m["content"], tipo)
+                self._burbuja(m["content"], "usuario" if m["role"] == "user" else "agente")
         else:
             self._burbuja("¡Hola! Dime qué quieres que haga.", "agente")
 
@@ -101,6 +125,8 @@ class ChatApp(ctk.CTk):
 
     def _scroll_abajo(self):
         self.chat._parent_canvas.yview_moveto(1.0)
+
+    # ----- Modo texto / botón Voz -----
 
     def enviar(self):
         peticion = self.entrada.get().strip()
@@ -128,6 +154,22 @@ class ChatApp(ctk.CTk):
         self.boton.configure(state="normal", text="Enviar")
         self.entrada.focus()
         agente.guardar_memoria(self.mensajes)
+        if self.voz_activa and respuesta:
+            threading.Thread(target=self._hablar, args=(respuesta,), daemon=True).start()
+
+    def _hablar(self, texto):
+        try:
+            from tools import habla
+            habla.decir(texto)
+        except Exception as e:
+            print("No se pudo hablar:", e)
+
+    def alternar_altavoz(self):
+        self.voz_activa = not self.voz_activa
+        if self.voz_activa:
+            self.boton_altavoz.configure(text="Altavoz: on", fg_color=COLOR_VOZ_ON)
+        else:
+            self.boton_altavoz.configure(text="Altavoz: off", fg_color=COLOR_USUARIO)
 
     def alternar_voz(self):
         from tools import voz
@@ -159,6 +201,59 @@ class ChatApp(ctk.CTk):
             self.entrada.delete(0, "end")
             self.entrada.insert(0, texto)
         self.entrada.focus()
+
+    # ----- Modo conversación manos libres -----
+
+    def alternar_conversacion(self):
+        if not self.modo_conversacion:
+            self.modo_conversacion = True
+            self.voz_activa = True  # en conversación siempre responde hablando
+            self.boton_altavoz.configure(text="Altavoz: on", fg_color=COLOR_VOZ_ON)
+            self.boton_conversacion.configure(text="Detener conversación", fg_color=COLOR_GRABANDO)
+            threading.Thread(target=self._bucle_conversacion, daemon=True).start()
+        else:
+            self.modo_conversacion = False
+            self.boton_conversacion.configure(text="Iniciar modo conversación", fg_color=COLOR_USUARIO)
+
+    def _bucle_conversacion(self):
+        from tools import escucha, habla
+        while self.modo_conversacion:
+            # 1. Escuchar una frase (corta sola con el silencio)
+            try:
+                texto = escucha.escuchar_una_frase(parar=lambda: not self.modo_conversacion)
+            except Exception as e:
+                self.after(0, lambda: self._burbuja(f"Error al escuchar: {e}", "accion"))
+                break
+
+            if not self.modo_conversacion:
+                break
+            if not texto:
+                continue  # no entendió nada, vuelve a escuchar
+
+            self.after(0, self._burbuja, texto, "usuario")
+
+            # 2. Procesar con el agente
+            try:
+                respuesta, acciones = agente.procesar(texto, self.mensajes)
+            except Exception as e:
+                respuesta, acciones = f"Ocurrió un error: {e}", []
+
+            self.after(0, self._mostrar_conversacion, respuesta, acciones)
+
+            # 3. Responder hablando (el micrófono está en pausa mientras habla)
+            if respuesta:
+                try:
+                    habla.decir(respuesta)
+                except Exception as e:
+                    print("No se pudo hablar:", e)
+            # 4. Vuelve solo al inicio del bucle a escuchar
+
+    def _mostrar_conversacion(self, respuesta, acciones):
+        for a in acciones:
+            self._burbuja(f"-> {a}", "accion")
+        if respuesta:
+            self._burbuja(respuesta, "agente")
+        agente.guardar_memoria(self.mensajes)
 
 
 if __name__ == "__main__":
