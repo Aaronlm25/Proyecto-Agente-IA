@@ -14,15 +14,15 @@ def ruta_recurso(rel):
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("green")
 
-FUENTE = "Helvetica"
+FUENTE = "Inter"
 
-COLOR_FONDO = "#1a1a2e"
-COLOR_USUARIO = "#0f3460"
-COLOR_AGENTE = "#16213e"
-COLOR_ACCION = "#1f6f54"
-COLOR_TEXTO = "#e8e8e8"
-COLOR_GRABANDO = "#a83246"
-COLOR_VOZ_ON = "#1f6f54"
+COLOR_FONDO = "#1e1e24"
+COLOR_USUARIO = "#4d3f26"
+COLOR_AGENTE = "#1f2d3d"
+COLOR_ACCION = "#b57614"
+COLOR_TEXTO = "#fff9e6"
+COLOR_GRABANDO = "#fb4934"
+COLOR_VOZ_ON = "#8ec07c"
 
 
 class ChatApp(ctk.CTk):
