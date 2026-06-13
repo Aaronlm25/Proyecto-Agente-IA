@@ -1,5 +1,5 @@
 import ollama
-from tools import filesystem
+from tools import filesystem, calendario, configuracion
 
 MODELO = "qwen2.5:7b"
 
@@ -8,6 +8,8 @@ FUNCIONES = {
     "crear_carpeta": filesystem.crear_carpeta,
     "crear_proyecto": filesystem.crear_proyecto,
     "crear_nota": filesystem.crear_nota,
+    "crear_evento": calendario.crear_evento,
+    "generar_config": configuracion.generar_config,
 }
 
 # Descripción de las herramientas para que el modelo sepa cuándo usarlas
@@ -57,6 +59,38 @@ HERRAMIENTAS = [
                     "contenido": {"type": "string", "description": "Contenido de la nota"},
                 },
                 "required": ["titulo"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "crear_evento",
+            "description": "Crea un evento de calendario en formato .ics.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "titulo": {"type": "string", "description": "Título del evento"},
+                    "fecha": {"type": "string", "description": "Fecha en formato AAAA-MM-DD"},
+                    "hora": {"type": "string", "description": "Hora en formato HH:MM (24h)"},
+                    "duracion_horas": {"type": "integer", "description": "Duración en horas"},
+                },
+                "required": ["titulo", "fecha"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "generar_config",
+            "description": "Genera archivos de configuración para un proyecto (tipo 'python' o 'web').",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "proyecto": {"type": "string", "description": "Nombre del proyecto"},
+                    "tipo": {"type": "string", "description": "Tipo: python o web"},
+                },
+                "required": ["proyecto"],
             },
         },
     },
