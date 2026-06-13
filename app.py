@@ -12,7 +12,7 @@ def ruta_recurso(rel):
 
 
 ctk.set_appearance_mode("dark")
-ctk.set_default_color_theme("blue")
+ctk.set_default_color_theme("green")
 
 FUENTE = "Helvetica"
 
@@ -229,6 +229,10 @@ class ChatApp(ctk.CTk):
                 break
             if not texto:
                 continue  # no entendió nada, vuelve a escuchar
+
+            if texto.lower().strip() in ("salir", "detente", "adiós", "adios", "para", "para ya"):
+                self.after(0, self.alternar_conversacion)
+                break
 
             self.after(0, self._burbuja, texto, "usuario")
 
