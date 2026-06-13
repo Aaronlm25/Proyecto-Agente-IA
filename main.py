@@ -104,7 +104,8 @@ def ejecutar(peticion: str):
             "content": (
                 "Eres un asistente que automatiza tareas en la computadora del usuario "
                 "usando las herramientas disponibles. Cuando el usuario pida crear algo, "
-                "usa la herramienta adecuada. Responde siempre en español."
+                "usa la herramienta adecuada. Las fechas van en formato AAAA-MM-DD y las "
+                "horas en formato HH:MM de 24 horas. Responde siempre en español."
             ),
         },
         {"role": "user", "content": peticion},
@@ -116,7 +117,6 @@ def ejecutar(peticion: str):
         mensajes.append(mensaje)
 
         if not mensaje.tool_calls:
-            # El modelo no pidió más herramientas: ya es su respuesta final
             print("\n🤖", mensaje.content)
             break
 
