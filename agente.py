@@ -276,10 +276,13 @@ def _generar_plan(mensajes):
         "role": "user",
         "content": ("Antes de hacer nada, describe en una lista numerada y breve "
                     "(máximo 6 pasos) lo que vas a hacer para cumplir mi última petición. "
-                    "Solo el plan, no ejecutes ninguna herramienta todavía."),
+                    "Escribe ÚNICAMENTE en español, sin usar otros idiomas ni caracteres "
+                    "de otros alfabetos (nada de chino). No incluyas saludos ni "
+                    "explicaciones, solo la lista de pasos. No ejecutes ninguna herramienta."),
     }
     try:
-        resp = ollama.chat(model=MODELO, messages=mensajes + [nudge])
+        resp = ollama.chat(model=MODELO, messages=mensajes + [nudge],
+                           options={"temperature": 0.3})
         return resp.message.content or "(sin plan)"
     except Exception as e:
         registro.error(f"Error al generar el plan: {e}")
