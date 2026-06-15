@@ -18,16 +18,18 @@ RUTA_AJUSTES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ajustes
 
 FUENTE = "Inter"
 
-COLOR_FONDO = "#1e1e24"
-COLOR_LATERAL = "#26262e"
-COLOR_USUARIO = "#4d3f26"
-COLOR_AGENTE = "#1f2d3d"
-COLOR_ACCION = "#b57614"
-COLOR_TEXTO = "#fff9e6"
-COLOR_GRABANDO = "#fb4934"
-COLOR_VOZ_ON = "#8ec07c"
-COLOR_CHAT_ACTIVO = "#3a4a5e"
-COLOR_ADJUNTO = "#9aa0b5"
+# Cada color es una tupla (claro, oscuro): CustomTkinter usa el primero en
+# tema "light" y el segundo en tema "dark", y cambia solo al cambiar el tema.
+COLOR_FONDO = ("#f2f2f5", "#1e1e24")
+COLOR_LATERAL = ("#e6e6ea", "#26262e")
+COLOR_USUARIO = ("#e7d8b0", "#4d3f26")
+COLOR_AGENTE = ("#dbe6f0", "#1f2d3d")
+COLOR_ACCION = ("#e8a93b", "#b57614")
+COLOR_TEXTO = ("#1a1a1a", "#fff9e6")
+COLOR_GRABANDO = ("#e85d52", "#fb4934")
+COLOR_VOZ_ON = ("#5fa86a", "#8ec07c")
+COLOR_CHAT_ACTIVO = ("#c3d2e2", "#3a4a5e")
+COLOR_ADJUNTO = ("#6b6f7d", "#9aa0b5")
 
 
 def cargar_ajustes():
@@ -104,7 +106,7 @@ class ChatApp(ctk.CTk):
         ctk.CTkLabel(panel, text="Agente de IA Local", font=(FUENTE, 20, "bold"),
                      text_color=COLOR_TEXTO).pack(pady=(18, 4))
         ctk.CTkLabel(panel, text="Tu asistente local para crear proyectos, notas y eventos",
-                     font=(FUENTE, 12), text_color="#9aa0b5").pack(pady=(0, 10))
+                     font=(FUENTE, 12), text_color=COLOR_ADJUNTO).pack(pady=(0, 10))
 
         self.chat = ctk.CTkScrollableFrame(panel, fg_color="transparent")
         self.chat.pack(padx=15, pady=5, fill="both", expand=True)
@@ -448,9 +450,12 @@ class ChatApp(ctk.CTk):
 
         ctk.CTkLabel(win, text="Modelo de Ollama", font=(FUENTE, 12),
                      text_color=COLOR_TEXTO, anchor="w").pack(padx=20, anchor="w")
-        entrada_modelo = ctk.CTkEntry(win, font=(FUENTE, 13))
-        entrada_modelo.insert(0, agente.MODELO)
-        entrada_modelo.pack(padx=20, pady=(2, 12), fill="x")
+        modelos = agente.modelos_disponibles()
+        if agente.MODELO not in modelos:
+            modelos = [agente.MODELO] + modelos
+        menu_modelo = ctk.CTkOptionMenu(win, values=modelos)
+        menu_modelo.set(agente.MODELO)
+        menu_modelo.pack(padx=20, pady=(2, 12), fill="x")
 
         ctk.CTkLabel(win, text="Tema", font=(FUENTE, 12),
                      text_color=COLOR_TEXTO, anchor="w").pack(padx=20, anchor="w")
@@ -469,9 +474,10 @@ class ChatApp(ctk.CTk):
             switch_voz.select()
 
         def guardar():
-            agente.MODELO = entrada_modelo.get().strip() or agente.MODELO
+            agente.MODELO = menu_modelo.get()
             tema = menu_tema.get()
             ctk.set_appearance_mode(tema)
+            self.configure(fg_color=COLOR_FONDO)  # refuerza el fondo de la raíz
             self.confirmaciones = bool(switch_conf.get())
             self.voz_activa = bool(switch_voz.get())
             self.boton_altavoz.configure(

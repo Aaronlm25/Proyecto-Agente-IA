@@ -463,3 +463,19 @@ def borrar_chat(chat_id):
             os.remove(ruta)
     except Exception as e:
         registro.error(f"No se pudo borrar el chat {chat_id}: {e}")
+
+
+def modelos_disponibles():
+    """Devuelve la lista de modelos instalados en Ollama."""
+    try:
+        datos = ollama.list()
+        nombres = []
+        for m in datos.get("models", []):
+            # Según la versión, el nombre viene en 'model' o 'name'.
+            nombre = m.get("model") or m.get("name")
+            if nombre:
+                nombres.append(nombre)
+        return nombres or [MODELO]
+    except Exception as e:
+        registro.error(f"No se pudieron listar los modelos de Ollama: {e}")
+        return [MODELO]
