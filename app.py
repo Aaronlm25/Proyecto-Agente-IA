@@ -226,16 +226,21 @@ class ChatApp(ctk.CTk):
             fila = ctk.CTkFrame(self.lista_chats, fg_color="transparent")
             fila.pack(fill="x", pady=2)
             activo = (c["id"] == self.chat_actual)
-            ctk.CTkButton(fila, text=c["titulo"], anchor="w", height=32, corner_radius=8,
+            # La X se empaqueta primero para que SIEMPRE tenga su sitio reservado.
+            ctk.CTkButton(fila, text="✕", width=26, height=32, corner_radius=8,
+                          font=(FUENTE, 12), fg_color="transparent", hover_color=COLOR_GRABANDO,
+                          command=lambda cid=c["id"]: self.borrar_chat(cid)
+                          ).pack(side="right", padx=(2, 0))
+            # El título se recorta si es muy largo para no empujar a la X.
+            titulo = c["titulo"]
+            if len(titulo) > 20:
+                titulo = titulo[:20] + "…"
+            ctk.CTkButton(fila, text=titulo, anchor="w", height=32, corner_radius=8,
                           font=(FUENTE, 12),
                           fg_color=COLOR_CHAT_ACTIVO if activo else "transparent",
                           hover_color=COLOR_CHAT_ACTIVO,
                           command=lambda cid=c["id"]: self.cambiar_chat(cid)
                           ).pack(side="left", fill="x", expand=True)
-            ctk.CTkButton(fila, text="✕", width=26, height=32, corner_radius=8,
-                          font=(FUENTE, 12), fg_color="transparent", hover_color=COLOR_GRABANDO,
-                          command=lambda cid=c["id"]: self.borrar_chat(cid)
-                          ).pack(side="right", padx=(2, 0))
 
     def nuevo_chat(self):
         self.chat_actual = agente.crear_chat()
