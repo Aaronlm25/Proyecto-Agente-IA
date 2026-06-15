@@ -270,24 +270,54 @@ HERRAMIENTAS = [
 ]
 
 
-def procesar(peticion, mensajes, confirmador=None, on_token=None, on_accion=None):
+def _generar_plan(mensajes):
+    """Pide al modelo (sin herramientas) que describa los pasos que dará."""
+    nudge = {
+        "role": "user",
+        "content": ("Antes de hacer nada, describe en una lista numerada y breve "
+                    "(máximo 6 pasos) lo que vas a hacer para cumplir mi última petición. "
+                    "Solo el plan, no ejecutes ninguna herramienta todavía."),
+    }
+    try:
+        resp = ollama.chat(model=MODELO, messages=mensajes + [nudge])
+        return resp.message.content or "(sin plan)"
+    except Exception as e:
+        registro.error(f"Error al generar el plan: {e}")
+        return f"(No se pudo generar el plan: {e})"
+
+
+def procesar(peticion, mensajes, confirmador=None, on_token=None, on_accion=None,
+             cancelado=None, planificador=None):
     """Procesa una petición con streaming, confirmación y registro.
 
-    - confirmador(nombre, args) -> bool: se llama antes de ejecutar herramientas
-      sensibles. Si devuelve False, la acción se cancela.
-    - on_token(texto): se llama con cada fragmento de texto que el modelo genera.
-    - on_accion(linea): se llama cada vez que se ejecuta una herramienta.
+    - confirmador(nombre, args) -> bool: confirma herramientas sensibles.
+    - on_token(texto): fragmento de texto generado por el modelo.
+    - on_accion(linea): cada vez que se ejecuta una herramienta.
+    - cancelado() -> bool: si devuelve True, se detiene la generación.
+    - planificador(plan) -> bool: si se pasa (modo plan), primero genera un plan;
+      si el usuario no lo aprueba, devuelve el plan sin ejecutar nada.
 
     Devuelve (texto_respuesta, lista_de_acciones)."""
     mensajes.append({"role": "user", "content": peticion})
     acciones = []
 
+    # Modo plan: generar y pedir aprobación antes de actuar.
+    if planificador is not None:
+        plan = _generar_plan(mensajes)
+        if not planificador(plan):
+            mensajes.append({"role": "assistant", "content": plan})
+            return plan, acciones
+
     while True:
         contenido = ""
         tool_calls = []
+        cancelado_flag = False
         try:
             for parte in ollama.chat(model=MODELO, messages=mensajes,
                                      tools=HERRAMIENTAS, stream=True):
+                if cancelado and cancelado():
+                    cancelado_flag = True
+                    break
                 msg = parte.message
                 if getattr(msg, "content", None):
                     contenido += msg.content
@@ -301,17 +331,22 @@ def procesar(peticion, mensajes, confirmador=None, on_token=None, on_accion=None
 
         # Reconstruimos el mensaje del asistente para el historial.
         msg_asistente = {"role": "assistant", "content": contenido}
-        if tool_calls:
+        if tool_calls and not cancelado_flag:
             msg_asistente["tool_calls"] = [
                 {"function": {"name": t.function.name, "arguments": t.function.arguments}}
                 for t in tool_calls
             ]
         mensajes.append(msg_asistente)
 
+        if cancelado_flag:
+            return contenido or "(generación detenida)", acciones
+
         if not tool_calls:
             return contenido, acciones
 
         for llamada in tool_calls:
+            if cancelado and cancelado():
+                return contenido or "(generación detenida)", acciones
             nombre = llamada.function.name
             argumentos = llamada.function.arguments
 

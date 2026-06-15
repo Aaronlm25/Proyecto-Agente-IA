@@ -33,7 +33,8 @@ COLOR_ADJUNTO = ("#6b6f7d", "#9aa0b5")
 
 
 def cargar_ajustes():
-    base = {"modelo": agente.MODELO, "tema": "dark", "confirmaciones": True, "altavoz": False}
+    base = {"modelo": agente.MODELO, "tema": "dark", "confirmaciones": True,
+            "altavoz": False, "modo_plan": False}
     if os.path.exists(RUTA_AJUSTES):
         try:
             with open(RUTA_AJUSTES, encoding="utf-8") as f:
@@ -54,6 +55,7 @@ class ChatApp(ctk.CTk):
         ctk.set_default_color_theme("green")
         self.confirmaciones = self.ajustes["confirmaciones"]
         self.voz_activa = self.ajustes["altavoz"]
+        self.modo_plan = self.ajustes["modo_plan"]
 
         self.title("Agente de IA Local")
         self.geometry("960x680")
@@ -75,6 +77,12 @@ class ChatApp(ctk.CTk):
         self.adjunto = None
         self.adjunto_texto = None
         self._conf_resultado = None
+        # Estado de cancelación y atajos
+        self.generando = False
+        self.cancelar_flag = threading.Event()
+        self._plan_resultado = None
+        self.ultima_respuesta = ""
+        self.ultimo_usuario = ""
 
         # ----- Barra lateral -----
         self.lateral = ctk.CTkFrame(self, fg_color=COLOR_LATERAL, corner_radius=0, width=210)
@@ -88,7 +96,12 @@ class ChatApp(ctk.CTk):
             self.lateral, text="+ Nuevo chat", height=36, corner_radius=10,
             command=self.nuevo_chat, font=(FUENTE, 13, "bold"), fg_color=COLOR_USUARIO,
         )
-        self.boton_nuevo.pack(padx=12, pady=(0, 10), fill="x")
+        self.boton_nuevo.pack(padx=12, pady=(0, 8), fill="x")
+
+        self.entrada_busqueda = ctk.CTkEntry(
+            self.lateral, placeholder_text="Buscar chats...", font=(FUENTE, 12))
+        self.entrada_busqueda.pack(padx=12, pady=(0, 8), fill="x")
+        self.entrada_busqueda.bind("<KeyRelease>", lambda e: self._refrescar_lista())
 
         self.boton_ajustes = ctk.CTkButton(
             self.lateral, text="Ajustes", height=34, corner_radius=10,
@@ -158,6 +171,12 @@ class ChatApp(ctk.CTk):
         self._refrescar_lista()
         self.entrada.focus()
 
+        # ----- Atajos de teclado -----
+        self.bind("<Escape>", lambda e: self.detener_generacion())
+        self.bind("<Control-f>", self._focus_busqueda)
+        self.bind("<Control-c>", self._atajo_copiar)
+        self.entrada.bind("<Up>", self._reusar_ultimo)
+
     # ----- Render -----
 
     def _render_chat(self):
@@ -198,7 +217,12 @@ class ChatApp(ctk.CTk):
     def _refrescar_lista(self):
         for widget in self.lista_chats.winfo_children():
             widget.destroy()
+        filtro = ""
+        if hasattr(self, "entrada_busqueda"):
+            filtro = self.entrada_busqueda.get().strip().lower()
         for c in agente.listar_chats():
+            if filtro and filtro not in c["titulo"].lower():
+                continue
             fila = ctk.CTkFrame(self.lista_chats, fg_color="transparent")
             fila.pack(fill="x", pady=2)
             activo = (c["id"] == self.chat_actual)
@@ -294,11 +318,21 @@ class ChatApp(ctk.CTk):
             peticion_final = peticion
             self._burbuja(peticion, "usuario")
 
+        self.ultimo_usuario = peticion
         self.entrada.configure(state="disabled")
-        self.boton.configure(state="disabled", text="...")
+        self.generando = True
+        self.cancelar_flag.clear()
+        self.boton.configure(text="Detener", command=self.detener_generacion)
         self.label_actual = None
         self.texto_actual = ""
         threading.Thread(target=self._trabajar, args=(peticion_final,), daemon=True).start()
+
+    def detener_generacion(self):
+        if self.generando:
+            self.cancelar_flag.set()
+
+    def _cancelado(self):
+        return self.cancelar_flag.is_set()
 
     def _trabajar(self, peticion):
         try:
@@ -307,6 +341,8 @@ class ChatApp(ctk.CTk):
                 confirmador=self._confirmar,
                 on_token=self._on_token,
                 on_accion=self._on_accion,
+                cancelado=self._cancelado,
+                planificador=self._aprobar_plan if self.modo_plan else None,
             )
         except Exception as e:
             respuesta = f"Ocurrió un error: {e}"
@@ -328,17 +364,82 @@ class ChatApp(ctk.CTk):
         self.after(0, self._burbuja, f"-> {linea}", "accion")
 
     def _fin_envio(self, respuesta):
+        self.generando = False
+        self.cancelar_flag.clear()
         self.entrada.configure(state="normal")
-        self.boton.configure(state="normal", text="Enviar")
+        self.boton.configure(state="normal", text="Enviar", command=self.enviar)
         self.entrada.focus()
         # Si por algún motivo no se hizo streaming pero hay texto, lo mostramos.
         if self.label_actual is None and respuesta:
             self._burbuja(respuesta, "agente")
         self.label_actual = None
+        if respuesta:
+            self.ultima_respuesta = respuesta
         agente.guardar_chat(self.chat_actual, self.mensajes)
         self._refrescar_lista()
         if self.voz_activa and respuesta:
             threading.Thread(target=self._hablar, args=(respuesta,), daemon=True).start()
+
+    # ----- Modo plan (aprobación, llamada desde el hilo de trabajo) -----
+
+    def _aprobar_plan(self, plan):
+        self._plan_resultado = None
+        evento = threading.Event()
+
+        def preguntar():
+            win = ctk.CTkToplevel(self)
+            win.title("Plan del agente")
+            win.geometry("460x420")
+            win.configure(fg_color=COLOR_FONDO)
+            win.transient(self)
+            win.after(120, win.lift)
+            ctk.CTkLabel(win, text="El agente planea hacer esto:", font=(FUENTE, 14, "bold"),
+                         text_color=COLOR_TEXTO).pack(pady=(16, 8), padx=16, anchor="w")
+            caja = ctk.CTkTextbox(win, font=(FUENTE, 12), wrap="word")
+            caja.pack(padx=16, pady=4, fill="both", expand=True)
+            caja.insert("1.0", plan)
+            caja.configure(state="disabled")
+            fila = ctk.CTkFrame(win, fg_color="transparent")
+            fila.pack(fill="x", padx=16, pady=12)
+
+            def resolver(ok):
+                self._plan_resultado = ok
+                win.destroy()
+                evento.set()
+
+            ctk.CTkButton(fila, text="Ejecutar", command=lambda: resolver(True),
+                          fg_color=COLOR_VOZ_ON, font=(FUENTE, 13, "bold")).pack(side="right", padx=(6, 0))
+            ctk.CTkButton(fila, text="Cancelar", command=lambda: resolver(False),
+                          fg_color=COLOR_USUARIO, font=(FUENTE, 13, "bold")).pack(side="right")
+            win.protocol("WM_DELETE_WINDOW", lambda: resolver(False))
+
+        self.after(0, preguntar)
+        evento.wait()
+        if self._plan_resultado:
+            self.after(0, self._burbuja, f"Plan aprobado:\n{plan}", "accion")
+        return bool(self._plan_resultado)
+
+    # ----- Atajos de teclado -----
+
+    def _focus_busqueda(self, event=None):
+        self.entrada_busqueda.focus()
+        return "break"
+
+    def _atajo_copiar(self, event=None):
+        # Si el foco está en un campo de texto, deja el copiado normal del sistema.
+        foco = self.focus_get()
+        if foco in (self.entrada, getattr(self, "entrada_busqueda", None)):
+            return
+        if self.ultima_respuesta:
+            self.clipboard_clear()
+            self.clipboard_append(self.ultima_respuesta)
+        return "break"
+
+    def _reusar_ultimo(self, event=None):
+        if not self.entrada.get().strip() and self.ultimo_usuario:
+            self.entrada.delete(0, "end")
+            self.entrada.insert(0, self.ultimo_usuario)
+            return "break"
 
     def _hablar(self, texto):
         try:
@@ -432,6 +533,7 @@ class ChatApp(ctk.CTk):
             self._burbuja(f"-> {a}", "accion")
         if respuesta:
             self._burbuja(respuesta, "agente")
+            self.ultima_respuesta = respuesta
         agente.guardar_chat(self.chat_actual, self.mensajes)
         self._refrescar_lista()
 
@@ -440,7 +542,7 @@ class ChatApp(ctk.CTk):
     def abrir_ajustes(self):
         win = ctk.CTkToplevel(self)
         win.title("Ajustes")
-        win.geometry("380x380")
+        win.geometry("380x440")
         win.configure(fg_color=COLOR_FONDO)
         win.transient(self)
         win.after(120, win.lift)
@@ -473,6 +575,11 @@ class ChatApp(ctk.CTk):
         if self.voz_activa:
             switch_voz.select()
 
+        switch_plan = ctk.CTkSwitch(win, text="Modo plan (aprobar pasos antes de actuar)")
+        switch_plan.pack(padx=20, pady=6, anchor="w")
+        if self.modo_plan:
+            switch_plan.select()
+
         def guardar():
             agente.MODELO = menu_modelo.get()
             tema = menu_tema.get()
@@ -480,11 +587,13 @@ class ChatApp(ctk.CTk):
             self.configure(fg_color=COLOR_FONDO)  # refuerza el fondo de la raíz
             self.confirmaciones = bool(switch_conf.get())
             self.voz_activa = bool(switch_voz.get())
+            self.modo_plan = bool(switch_plan.get())
             self.boton_altavoz.configure(
                 text=("Altavoz: on" if self.voz_activa else "Altavoz: off"),
                 fg_color=(COLOR_VOZ_ON if self.voz_activa else COLOR_USUARIO))
             self.ajustes = {"modelo": agente.MODELO, "tema": tema,
-                            "confirmaciones": self.confirmaciones, "altavoz": self.voz_activa}
+                            "confirmaciones": self.confirmaciones, "altavoz": self.voz_activa,
+                            "modo_plan": self.modo_plan}
             try:
                 with open(RUTA_AJUSTES, "w", encoding="utf-8") as f:
                     json.dump(self.ajustes, f, ensure_ascii=False, indent=2)
