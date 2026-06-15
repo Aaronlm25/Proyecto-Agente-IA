@@ -1,0 +1,19 @@
+{
+  "titulo": "hola me llamo aaron y soy tu nuevo lider",
+  "creado": "2026-06-15T13:15:15.854641",
+  "actualizado": "2026-06-15T13:17:35.442428",
+  "turnos": [
+    {
+      "role": "user",
+      "content": "hola me llamo aaron y soy tu nuevo lider"
+    },
+    {
+      "role": "assistant",
+      "content": " Escorts para ti, Aaron. ¡Encantado de ser tu asistente! ¿En qué puedo ayudarte hoy? Ya guardo tu información en mis recuerdos.\n\n"
+    },
+    {
+      "role": "assistant",
+      "content": "Perfecto, Aaron. Ahora que somos más claros sobre esto, ¿hay algo específico que necesites para comenzar tu proyecto o cualquier otra cosa?"
+    }
+  ]
+}

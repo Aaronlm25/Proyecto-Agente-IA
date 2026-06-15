@@ -1,0 +1,15 @@
+{
+  "titulo": "como me llamo?",
+  "creado": "2026-06-15T13:17:47.662953",
+  "actualizado": "2026-06-15T13:19:11.921612",
+  "turnos": [
+    {
+      "role": "user",
+      "content": "como me llamo?"
+    },
+    {
+      "role": "assistant",
+      "content": "Te llamas Aaron."
+    }
+  ]
+}

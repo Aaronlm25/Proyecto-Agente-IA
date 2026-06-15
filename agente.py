@@ -1,11 +1,14 @@
 import json
 import os
+import datetime
 import ollama
-from tools import filesystem, calendario, configuracion
+from tools import filesystem, calendario, configuracion, terminal, web, memoria
 
 MODELO = "qwen2.5:7b"
 
-RUTA_MEMORIA = os.path.join(os.path.dirname(__file__), "memoria.json")
+# Carpeta donde se guarda cada conversación por separado.
+CARPETA_CHATS = os.path.join(os.path.dirname(__file__), "chats")
+os.makedirs(CARPETA_CHATS, exist_ok=True)
 MAX_TURNOS = 40
 
 MENSAJE_SISTEMA = {
@@ -13,7 +16,9 @@ MENSAJE_SISTEMA = {
     "content": (
         "Eres un asistente que automatiza tareas en la computadora del usuario "
         "usando las herramientas disponibles. Cuando el usuario pida crear o buscar algo, "
-        "usa la herramienta adecuada. Las fechas van en formato AAAA-MM-DD y las "
+        "usa la herramienta adecuada. Si necesitas información actual o reciente, usa "
+        "buscar_web. Si el usuario menciona un dato personal importante (su nombre, gustos, "
+        "proyectos), guárdalo con recordar. Las fechas van en formato AAAA-MM-DD y las "
         "horas en formato HH:MM de 24 horas. Responde siempre en español."
     ),
 }
@@ -25,6 +30,17 @@ FUNCIONES = {
     "buscar_archivos": filesystem.buscar_archivos,
     "crear_evento": calendario.crear_evento,
     "generar_config": configuracion.generar_config,
+    # --- terminal ---
+    "ejecutar_comando": terminal.ejecutar,
+    "instalar_dependencia": terminal.instalar_dependencia,
+    "git": terminal.git,
+    # --- web ---
+    "buscar_web": web.buscar,
+    "leer_pagina": web.leer_pagina,
+    # --- memoria ---
+    "recordar": memoria.recordar,
+    "recuperar": memoria.recuperar,
+    "listar_recuerdos": memoria.listar_recuerdos,
 }
 
 HERRAMIENTAS = [
@@ -123,11 +139,135 @@ HERRAMIENTAS = [
             },
         },
     },
+    # ----------------- TERMINAL -----------------
+    {
+        "type": "function",
+        "function": {
+            "name": "ejecutar_comando",
+            "description": (
+                "Ejecuta un comando de shell dentro del workspace. Úsalo para correr "
+                "proyectos, listar archivos, mover cosas, etc. No se permiten comandos destructivos."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "comando": {"type": "string", "description": "El comando a ejecutar"},
+                    "carpeta": {"type": "string", "description": "Subcarpeta opcional donde ejecutarlo"},
+                },
+                "required": ["comando"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "instalar_dependencia",
+            "description": "Instala un paquete con pip, npm o apt.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "paquete": {"type": "string", "description": "Nombre del paquete"},
+                    "gestor": {"type": "string", "description": "pip, npm o apt (por defecto pip)"},
+                },
+                "required": ["paquete"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "git",
+            "description": "Operaciones git comunes: init, status, add, commit, log.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "accion": {"type": "string", "description": "init, status, add, commit o log"},
+                    "mensaje": {"type": "string", "description": "Mensaje de commit (solo para commit)"},
+                    "carpeta": {"type": "string", "description": "Subcarpeta del repositorio (opcional)"},
+                },
+                "required": ["accion"],
+            },
+        },
+    },
+    # ----------------- WEB -----------------
+    {
+        "type": "function",
+        "function": {
+            "name": "buscar_web",
+            "description": (
+                "Busca información actual en internet. Úsalo cuando no sepas algo, "
+                "sea reciente, o necesites datos del mundo real."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "consulta": {"type": "string", "description": "Qué buscar"},
+                    "n": {"type": "integer", "description": "Número de resultados (por defecto 5)"},
+                },
+                "required": ["consulta"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "leer_pagina",
+            "description": "Descarga y devuelve el texto legible de una página web a partir de su URL.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "url": {"type": "string", "description": "La URL de la página"},
+                },
+                "required": ["url"],
+            },
+        },
+    },
+    # ----------------- MEMORIA -----------------
+    {
+        "type": "function",
+        "function": {
+            "name": "recordar",
+            "description": (
+                "Guarda un dato del usuario para recordarlo siempre entre sesiones "
+                "(nombre, gustos, proyecto en el que trabaja, etc.)."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "clave": {"type": "string", "description": "Qué dato es, ej: 'lenguaje favorito'"},
+                    "valor": {"type": "string", "description": "El valor del dato"},
+                },
+                "required": ["clave", "valor"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "recuperar",
+            "description": "Recupera un dato guardado del usuario por su clave.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "clave": {"type": "string", "description": "Qué dato recuperar"},
+                },
+                "required": ["clave"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "listar_recuerdos",
+            "description": "Lista todo lo que el agente recuerda del usuario.",
+            "parameters": {"type": "object", "properties": {}, "required": []},
+        },
+    },
 ]
 
 
 def procesar(peticion, mensajes):
-    """Procesa una petición. 'mensajes' es la lista de conversación (memoria).
+    """Procesa una petición. 'mensajes' es la lista de conversación.
     Devuelve (texto_respuesta, lista_de_acciones)."""
     mensajes.append({"role": "user", "content": peticion})
     acciones = []
@@ -151,6 +291,7 @@ def procesar(peticion, mensajes):
                     resultado = funcion(**argumentos)
                 except Exception as e:
                     resultado = f"Error al ejecutar {nombre}: {e}"
+            resultado = str(resultado)
             acciones.append(f"{nombre}({argumentos}) -> {resultado}")
             mensajes.append({"role": "tool", "content": resultado})
 
@@ -166,24 +307,110 @@ def _turno_serializable(m):
     return None
 
 
-def cargar_memoria():
-    """Devuelve la lista de mensajes inicial: sistema + historial guardado."""
-    mensajes = [MENSAJE_SISTEMA]
-    if os.path.exists(RUTA_MEMORIA):
+def _mensaje_sistema():
+    """Mensaje de sistema con los recuerdos del usuario inyectados."""
+    sistema = dict(MENSAJE_SISTEMA)
+    try:
+        contexto = memoria.contexto_memoria()
+        if contexto:
+            sistema["content"] += " " + contexto
+    except Exception:
+        pass
+    return sistema
+
+
+# ----------------- GESTIÓN DE CHATS -----------------
+
+def _ruta_chat(chat_id):
+    return os.path.join(CARPETA_CHATS, f"{chat_id}.json")
+
+
+def crear_chat():
+    """Crea un chat nuevo vacío y devuelve su id."""
+    chat_id = "chat_" + datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    ahora = datetime.datetime.now().isoformat()
+    datos = {"titulo": "Nuevo chat", "creado": ahora, "actualizado": ahora, "turnos": []}
+    with open(_ruta_chat(chat_id), "w", encoding="utf-8") as f:
+        json.dump(datos, f, ensure_ascii=False, indent=2)
+    return chat_id
+
+
+def listar_chats():
+    """Devuelve la lista de chats [{id, titulo, actualizado}] del más reciente al más viejo."""
+    chats = []
+    if not os.path.isdir(CARPETA_CHATS):
+        return chats
+    for nombre in os.listdir(CARPETA_CHATS):
+        if not nombre.endswith(".json"):
+            continue
+        chat_id = nombre[:-5]
         try:
-            with open(RUTA_MEMORIA, encoding="utf-8") as f:
-                turnos = json.load(f)
-            mensajes.extend(turnos[-MAX_TURNOS:])
+            with open(os.path.join(CARPETA_CHATS, nombre), encoding="utf-8") as f:
+                datos = json.load(f)
+            chats.append({
+                "id": chat_id,
+                "titulo": datos.get("titulo", "Chat"),
+                "actualizado": datos.get("actualizado", datos.get("creado", "")),
+            })
+        except Exception:
+            pass
+    chats.sort(key=lambda c: c["actualizado"], reverse=True)
+    return chats
+
+
+def cargar_chat(chat_id):
+    """Devuelve la lista de mensajes de un chat: sistema (con recuerdos) + turnos."""
+    mensajes = [_mensaje_sistema()]
+    ruta = _ruta_chat(chat_id)
+    if os.path.exists(ruta):
+        try:
+            with open(ruta, encoding="utf-8") as f:
+                datos = json.load(f)
+            mensajes.extend(datos.get("turnos", [])[-MAX_TURNOS:])
         except Exception:
             pass
     return mensajes
 
 
-def guardar_memoria(mensajes):
-    """Guarda solo los turnos de texto en memoria.json."""
+def guardar_chat(chat_id, mensajes):
+    """Guarda los turnos de texto del chat y actualiza su título y fecha."""
     turnos = [t for t in (_turno_serializable(m) for m in mensajes) if t]
+
+    # El título es el primer mensaje del usuario (recortado).
+    titulo = "Nuevo chat"
+    for t in turnos:
+        if t["role"] == "user":
+            titulo = t["content"][:40].strip() or "Nuevo chat"
+            break
+
+    # Conservamos la fecha de creación si ya existía.
+    creado = datetime.datetime.now().isoformat()
+    ruta = _ruta_chat(chat_id)
+    if os.path.exists(ruta):
+        try:
+            with open(ruta, encoding="utf-8") as f:
+                creado = json.load(f).get("creado", creado)
+        except Exception:
+            pass
+
+    datos = {
+        "titulo": titulo,
+        "creado": creado,
+        "actualizado": datetime.datetime.now().isoformat(),
+        "turnos": turnos[-MAX_TURNOS:],
+    }
     try:
-        with open(RUTA_MEMORIA, "w", encoding="utf-8") as f:
-            json.dump(turnos[-MAX_TURNOS:], f, ensure_ascii=False, indent=2)
+        with open(ruta, "w", encoding="utf-8") as f:
+            json.dump(datos, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+
+def borrar_chat(chat_id):
+    """Elimina un chat."""
+    try:
+        ruta = _ruta_chat(chat_id)
+        if os.path.exists(ruta):
+            os.remove(ruta)
     except Exception:
         pass
