@@ -2,6 +2,7 @@ import json
 import os
 import datetime
 import ollama
+import registro
 from tools import filesystem, calendario, configuracion, terminal, web, memoria
 
 MODELO = "qwen2.5:7b"
@@ -10,6 +11,9 @@ MODELO = "qwen2.5:7b"
 CARPETA_CHATS = os.path.join(os.path.dirname(__file__), "chats")
 os.makedirs(CARPETA_CHATS, exist_ok=True)
 MAX_TURNOS = 40
+
+# Herramientas que piden confirmación al usuario antes de ejecutarse.
+REQUIEREN_CONFIRMACION = {"ejecutar_comando", "instalar_dependencia", "git"}
 
 MENSAJE_SISTEMA = {
     "role": "system",
@@ -266,33 +270,80 @@ HERRAMIENTAS = [
 ]
 
 
-def procesar(peticion, mensajes):
-    """Procesa una petición. 'mensajes' es la lista de conversación.
+def procesar(peticion, mensajes, confirmador=None, on_token=None, on_accion=None):
+    """Procesa una petición con streaming, confirmación y registro.
+
+    - confirmador(nombre, args) -> bool: se llama antes de ejecutar herramientas
+      sensibles. Si devuelve False, la acción se cancela.
+    - on_token(texto): se llama con cada fragmento de texto que el modelo genera.
+    - on_accion(linea): se llama cada vez que se ejecuta una herramienta.
+
     Devuelve (texto_respuesta, lista_de_acciones)."""
     mensajes.append({"role": "user", "content": peticion})
     acciones = []
 
     while True:
-        respuesta = ollama.chat(model=MODELO, messages=mensajes, tools=HERRAMIENTAS)
-        mensaje = respuesta.message
-        mensajes.append(mensaje)
+        contenido = ""
+        tool_calls = []
+        try:
+            for parte in ollama.chat(model=MODELO, messages=mensajes,
+                                     tools=HERRAMIENTAS, stream=True):
+                msg = parte.message
+                if getattr(msg, "content", None):
+                    contenido += msg.content
+                    if on_token:
+                        on_token(msg.content)
+                if getattr(msg, "tool_calls", None):
+                    tool_calls.extend(msg.tool_calls)
+        except Exception as e:
+            registro.error(f"Error al contactar el modelo: {e}")
+            return f"Error al contactar el modelo: {e}", acciones
 
-        if not mensaje.tool_calls:
-            return mensaje.content, acciones
+        # Reconstruimos el mensaje del asistente para el historial.
+        msg_asistente = {"role": "assistant", "content": contenido}
+        if tool_calls:
+            msg_asistente["tool_calls"] = [
+                {"function": {"name": t.function.name, "arguments": t.function.arguments}}
+                for t in tool_calls
+            ]
+        mensajes.append(msg_asistente)
 
-        for llamada in mensaje.tool_calls:
+        if not tool_calls:
+            return contenido, acciones
+
+        for llamada in tool_calls:
             nombre = llamada.function.name
             argumentos = llamada.function.arguments
+
+            # Confirmación para herramientas sensibles.
+            if confirmador and nombre in REQUIEREN_CONFIRMACION:
+                if not confirmador(nombre, argumentos):
+                    resultado = f"Acción '{nombre}' cancelada por el usuario."
+                    registro.accion(f"CANCELADA {nombre}({argumentos})")
+                    linea = f"{nombre}({argumentos}) -> {resultado}"
+                    acciones.append(linea)
+                    if on_accion:
+                        on_accion(linea)
+                    mensajes.append({"role": "tool", "content": resultado})
+                    continue
+
             funcion = FUNCIONES.get(nombre)
             if funcion is None:
                 resultado = f"Error: herramienta desconocida '{nombre}'"
+                registro.error(resultado)
             else:
                 try:
                     resultado = funcion(**argumentos)
                 except Exception as e:
                     resultado = f"Error al ejecutar {nombre}: {e}"
+                    registro.error(f"{nombre}({argumentos}): {e}")
             resultado = str(resultado)
-            acciones.append(f"{nombre}({argumentos}) -> {resultado}")
+            registro.accion(f"{nombre}({argumentos}) -> {resultado[:200]}")
+
+            linea = f"{nombre}({argumentos}) -> {resultado}"
+            acciones.append(linea)
+            if on_accion:
+                on_accion(linea)
             mensajes.append({"role": "tool", "content": resultado})
 
 
@@ -336,7 +387,7 @@ def crear_chat():
 
 
 def listar_chats():
-    """Devuelve la lista de chats [{id, titulo, actualizado}] del más reciente al más viejo."""
+    """Devuelve [{id, titulo, actualizado}] del más reciente al más viejo."""
     chats = []
     if not os.path.isdir(CARPETA_CHATS):
         return chats
@@ -359,7 +410,7 @@ def listar_chats():
 
 
 def cargar_chat(chat_id):
-    """Devuelve la lista de mensajes de un chat: sistema (con recuerdos) + turnos."""
+    """Devuelve los mensajes de un chat: sistema (con recuerdos) + turnos."""
     mensajes = [_mensaje_sistema()]
     ruta = _ruta_chat(chat_id)
     if os.path.exists(ruta):
@@ -373,17 +424,15 @@ def cargar_chat(chat_id):
 
 
 def guardar_chat(chat_id, mensajes):
-    """Guarda los turnos de texto del chat y actualiza su título y fecha."""
+    """Guarda los turnos de texto del chat y actualiza título y fecha."""
     turnos = [t for t in (_turno_serializable(m) for m in mensajes) if t]
 
-    # El título es el primer mensaje del usuario (recortado).
     titulo = "Nuevo chat"
     for t in turnos:
         if t["role"] == "user":
             titulo = t["content"][:40].strip() or "Nuevo chat"
             break
 
-    # Conservamos la fecha de creación si ya existía.
     creado = datetime.datetime.now().isoformat()
     ruta = _ruta_chat(chat_id)
     if os.path.exists(ruta):
@@ -402,8 +451,8 @@ def guardar_chat(chat_id, mensajes):
     try:
         with open(ruta, "w", encoding="utf-8") as f:
             json.dump(datos, f, ensure_ascii=False, indent=2)
-    except Exception:
-        pass
+    except Exception as e:
+        registro.error(f"No se pudo guardar el chat {chat_id}: {e}")
 
 
 def borrar_chat(chat_id):
@@ -412,5 +461,5 @@ def borrar_chat(chat_id):
         ruta = _ruta_chat(chat_id)
         if os.path.exists(ruta):
             os.remove(ruta)
-    except Exception:
-        pass
+    except Exception as e:
+        registro.error(f"No se pudo borrar el chat {chat_id}: {e}")
