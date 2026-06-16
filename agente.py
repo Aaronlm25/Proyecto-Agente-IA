@@ -3,7 +3,7 @@ import os
 import datetime
 import ollama
 import registro
-from tools import filesystem, calendario, configuracion, terminal, web, memoria
+from tools import filesystem, calendario, configuracion, terminal, web, memoria, datos, vision
 
 MODELO = "qwen2.5:7b"
 
@@ -45,6 +45,11 @@ FUNCIONES = {
     "recordar": memoria.recordar,
     "recuperar": memoria.recuperar,
     "listar_recuerdos": memoria.listar_recuerdos,
+    # --- datos (csv/excel) ---
+    "analizar_tabla": datos.analizar_tabla,
+    "graficar_tabla": datos.graficar_tabla,
+    # --- visión (imágenes) ---
+    "leer_imagen": vision.leer_imagen,
 }
 
 HERRAMIENTAS = [
@@ -265,6 +270,62 @@ HERRAMIENTAS = [
             "name": "listar_recuerdos",
             "description": "Lista todo lo que el agente recuerda del usuario.",
             "parameters": {"type": "object", "properties": {}, "required": []},
+        },
+    },
+    # ----------------- DATOS (CSV / EXCEL) -----------------
+    {
+        "type": "function",
+        "function": {
+            "name": "analizar_tabla",
+            "description": (
+                "Responde preguntas en lenguaje natural sobre un archivo CSV o Excel "
+                "(sumas, promedios, máximos, filtros, conteos, etc.)."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "ruta": {"type": "string", "description": "Ruta del archivo csv o excel"},
+                    "pregunta": {"type": "string", "description": "Qué quiere saber el usuario sobre los datos"},
+                },
+                "required": ["ruta", "pregunta"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "graficar_tabla",
+            "description": (
+                "Crea una gráfica (barras, líneas, dispersión, etc.) a partir de un "
+                "CSV o Excel y la guarda como imagen PNG."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "ruta": {"type": "string", "description": "Ruta del archivo csv o excel"},
+                    "peticion": {"type": "string", "description": "Qué gráfica quiere el usuario, ej: 'barras de ventas por mes'"},
+                },
+                "required": ["ruta", "peticion"],
+            },
+        },
+    },
+    # ----------------- VISIÓN (IMÁGENES) -----------------
+    {
+        "type": "function",
+        "function": {
+            "name": "leer_imagen",
+            "description": (
+                "Analiza una imagen, gráfica o diagrama: la describe, lee su texto o "
+                "extrae los datos de una tabla fotografiada."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "ruta": {"type": "string", "description": "Ruta de la imagen (png, jpg, etc.)"},
+                    "pregunta": {"type": "string", "description": "Qué quiere saber el usuario sobre la imagen"},
+                },
+                "required": ["ruta"],
+            },
         },
     },
 ]

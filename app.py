@@ -18,6 +18,10 @@ RUTA_AJUSTES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ajustes
 
 FUENTE = "Inter"
 
+# Extensiones que se tratan como datos o imágenes: en vez de volcar su
+# contenido como texto, le pasamos la RUTA al agente para que use sus tools.
+EXT_RUTA_DIRECTA = (".csv", ".tsv", ".xlsx", ".xls", ".png", ".jpg", ".jpeg", ".webp", ".gif")
+
 # Cada color es una tupla (claro, oscuro): CustomTkinter usa el primero en
 # tema "light" y el segundo en tema "dark", y cambia solo al cambiar el tema.
 COLOR_FONDO = ("#f2f2f5", "#1e1e24")
@@ -272,12 +276,23 @@ class ChatApp(ctk.CTk):
     def adjuntar(self):
         ruta = filedialog.askopenfilename(
             title="Elige un archivo",
-            filetypes=[("Documentos", "*.pdf *.txt *.md *.py *.json *.csv *.html"), ("Todos", "*.*")],
+            filetypes=[
+                ("Soportados", "*.pdf *.txt *.md *.py *.json *.csv *.tsv *.xlsx *.xls *.png *.jpg *.jpeg *.webp *.html"),
+                ("Todos", "*.*"),
+            ],
         )
         if not ruta:
             return
         self.adjunto = ruta
-        self.adjunto_texto = lectura.leer_archivo(ruta)
+        ext = os.path.splitext(ruta)[1].lower()
+        # Datos e imágenes no se leen como texto: se pasará la ruta al agente.
+        if ext in EXT_RUTA_DIRECTA:
+            self.adjunto_texto = None
+        else:
+            try:
+                self.adjunto_texto = lectura.leer_archivo(ruta)
+            except Exception:
+                self.adjunto_texto = None
         self.label_adjunto.configure(text=f"📎 {os.path.basename(ruta)}  (se enviará con tu mensaje)")
 
     def _quitar_adjunto(self):
@@ -312,11 +327,21 @@ class ChatApp(ctk.CTk):
             return
         self.entrada.delete(0, "end")
 
-        if self.adjunto_texto:
+        if self.adjunto:
             nombre = os.path.basename(self.adjunto)
-            contexto = self.adjunto_texto[:6000]
-            peticion_final = (f"Contenido del archivo adjunto '{nombre}':\n{contexto}\n\n"
-                              f"Petición del usuario: {peticion}")
+            ext = os.path.splitext(self.adjunto)[1].lower()
+            if ext in EXT_RUTA_DIRECTA:
+                # Datos o imágenes: pasamos la RUTA para que el agente use sus herramientas.
+                peticion_final = (
+                    f"El usuario adjuntó el archivo '{nombre}' en la ruta: {self.adjunto}\n"
+                    f"Si es csv/excel usa analizar_tabla o graficar_tabla. "
+                    f"Si es una imagen usa leer_imagen.\n\n"
+                    f"Petición del usuario: {peticion}"
+                )
+            else:
+                contexto = (self.adjunto_texto or "")[:6000]
+                peticion_final = (f"Contenido del archivo adjunto '{nombre}':\n{contexto}\n\n"
+                                  f"Petición del usuario: {peticion}")
             self._burbuja(f"{peticion}   📎 {nombre}", "usuario")
             self._quitar_adjunto()
         else:
