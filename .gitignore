@@ -1,5 +1,9 @@
+workspace/
+chats/
+logs/
 __pycache__/
 *.pyc
+*.log
 .env
 config/secrets.json
 memoria.json
