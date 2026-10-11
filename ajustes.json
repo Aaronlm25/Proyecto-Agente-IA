@@ -1,5 +1,5 @@
 {
-  "modelo": "qwen2.5:7b",
+  "modelo": "qwen3:8b",
   "tema": "dark",
   "confirmaciones": true,
   "altavoz": false,

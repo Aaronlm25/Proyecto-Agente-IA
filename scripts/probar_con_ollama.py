@@ -250,6 +250,7 @@ class Resultado:
         self.confirmaciones = []
         self.segundos = 0.0
         self.error = None
+        self.avisos = []         # errores internos registrados (respuestas vacías, etc.)
 
     @property
     def delegaciones(self):
@@ -285,6 +286,15 @@ def correr(esc, args):
         if args.ver:
             print(f"      {ev['linea'][:150]}")
 
+    import logging
+
+    class Recolector(logging.Handler):
+        def emit(self, record):
+            r.avisos.append(record.getMessage()[:300])
+
+    recolector = Recolector(level=logging.ERROR)
+    logging.getLogger("agente").addHandler(recolector)
+
     if esc.preparar:
         esc.preparar()
     inicio = time.time()
@@ -294,6 +304,8 @@ def correr(esc, args):
                                    cancelado=lambda: time.time() > limite)
     except Exception as e:  # noqa: BLE001
         r.error = f"{type(e).__name__}: {e}"
+    finally:
+        logging.getLogger("agente").removeHandler(recolector)
     r.segundos = time.time() - inicio
     if time.time() > limite:
         r.error = f"superó el límite de {args.limite} s"
@@ -390,6 +402,8 @@ def escribir_reporte(filas, args, modelo, total_seg):
         lineas += ["", "**Herramientas:**"]
         lineas += [f"- [{h['agente']}] {h['herramienta']}({h.get('argumentos', '')}) → "
                    f"{h.get('resultado', '')[:200].replace(chr(10), ' ')}" for h in f["herramientas"]] or ["- ninguna"]
+        if f.get("avisos"):
+            lineas += ["", "**Avisos internos:**"] + [f"- {a}" for a in f["avisos"]]
         lineas += ["", "**Respuesta del agente:**", "", "> " + (f["texto"][:1200] or "(vacía)").replace("\n", "\n> "), ""]
     (CARPETA / "reporte.md").write_text("\n".join(lineas), encoding="utf-8")
     (CARPETA / "reporte.json").write_text(json.dumps(filas, ensure_ascii=False, indent=2, default=str),
@@ -482,7 +496,7 @@ def ejecutar_todos(elegidos, args, internet, vision, filas, total, en_vivo):
                 "vuelta": f" (vuelta {vuelta + 1})" if args.repetir > 1 else "",
                 "peticion": esc.peticion, "ok": ok, "aciertos": f"{aciertos}/{len(comprobaciones)}",
                 "segundos": r.segundos, "delegaciones": r.delegaciones, "tareas": r.tareas,
-                "herramientas": r.herramientas, "texto": r.texto,
+                "herramientas": r.herramientas, "texto": r.texto, "avisos": r.avisos,
                 "comprobaciones": comprobaciones,
             })
 

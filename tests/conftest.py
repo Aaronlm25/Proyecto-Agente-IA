@@ -84,6 +84,8 @@ class ModeloFalso:
         elif paso[0] == "tools":   # varias herramientas a la vez
             llamadas = [NS(function=NS(name=n, arguments=a)) for n, a in paso[1]]
             msg = NS(role="assistant", content="", tool_calls=llamadas)
+        elif paso[0] == "vacio":   # el modelo no devuelve nada (pasa con qwen2.5:7b)
+            msg = NS(role="assistant", content="", tool_calls=None)
         else:
             msg = NS(role="assistant", content=paso[1], tool_calls=None)
 

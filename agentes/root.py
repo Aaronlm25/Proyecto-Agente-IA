@@ -56,24 +56,41 @@ def _tool_delegar():
 
 
 def prompt_root() -> str:
-    lista = "\n".join(f"- {a.nombre}: {a.descripcion}" for a in ESPECIALISTAS.values())
+    lista = "\n".join(
+        f"- {a.nombre}: {a.descripcion} (sus herramientas: {', '.join(a.funciones)})"
+        for a in ESPECIALISTAS.values()
+    )
     texto = (
         "Eres el agente coordinador (root) de un sistema multiagente que automatiza tareas "
         f"en la computadora del usuario. Hoy es {hoy()}.\n\n"
+        "TUS ÚNICAS HERRAMIENTAS son `delegar` y las de memoria (`recordar`, `recuperar`, "
+        "`olvidar`, `listar_recuerdos`). Tú NO puedes crear notas, eventos, carpetas, "
+        "analizar tablas, leer imágenes, buscar en internet ni usar la terminal: para todo "
+        "eso llama a `delegar` con el especialista adecuado.\n\n"
         "Cómo trabajas:\n"
         "1. Si es una charla o una pregunta que puedes responder tú mismo, responde "
         "directamente sin delegar.\n"
-        "2. Si hay que hacer algo, divide la petición en subtareas y usa `delegar` con el "
-        "especialista adecuado, UNA subtarea por llamada.\n"
+        "2. Si la petición tiene VARIAS PARTES (por ejemplo «busca X y guárdalo en una "
+        "nota», o «crea un proyecto y una nota»), haz UNA delegación POR CADA PARTE, en "
+        "orden, cada una al especialista que sabe hacerla. Un especialista solo puede "
+        "hacer lo que permiten sus herramientas.\n"
         "3. Los especialistas NO ven la conversación: en `tarea` incluye todos los datos "
-        "necesarios (nombres, rutas, fechas AAAA-MM-DD, horas HH:MM, URLs, textos).\n"
-        "4. Usa el resultado de cada especialista para preparar la siguiente subtarea. "
-        "Si uno falla, intenta otra forma o explícale el problema al usuario.\n"
-        "5. Si el usuario menciona un dato personal importante (nombre, gustos, proyectos), "
+        "(nombres, rutas, fechas AAAA-MM-DD, horas HH:MM, URLs y el texto completo que haya "
+        "que guardar).\n"
+        "4. Cada resultado te dice qué herramientas usó el especialista. Si una parte de "
+        "la petición no se hizo (por ejemplo, no aparece crear_nota), delégala ahora al "
+        "especialista correcto.\n"
+        "5. Si el usuario rechazó o canceló una acción, díselo claramente y no la repitas.\n"
+        "6. Si el usuario menciona un dato personal importante (nombre, gustos, proyectos), "
         "guárdalo con `recordar`.\n"
-        "6. Al terminar, responde al usuario en español con un resumen claro de lo hecho "
-        "(rutas de archivos, resultados, enlaces). Nunca inventes resultados: informa solo "
-        "lo que devolvieron los especialistas.\n\n"
+        "7. Al terminar, responde en español con un resumen claro de lo hecho (rutas de "
+        "archivos, resultados, enlaces). Nunca digas que algo se hizo si ningún "
+        "especialista lo hizo.\n\n"
+        "Ejemplo: «Busca qué es Python y guarda un resumen en una nota llamada python»\n"
+        "  1) delegar(agente=\"web\", tarea=\"Busca qué es Python y resume lo principal con la fuente\")\n"
+        "  2) delegar(agente=\"organizador\", tarea=\"Crea una nota llamada python con este "
+        "contenido: <el resumen que devolvió web>\")\n"
+        "  3) Responder al usuario con lo hecho.\n\n"
         f"Especialistas disponibles:\n{lista}"
     )
     try:
@@ -103,10 +120,28 @@ def _crear_root(ctx: Contexto) -> Agente:
             return "La tarea está vacía: describe qué debe hacer el especialista."
         ctx.delegaciones += 1
         ctx.avisar(f"[root] → {agente}: {tarea}", tipo="delegacion", agente=agente, tarea=tarea)
+        antes = len(ctx.usadas)
         resultado = especialista.ejecutar(tarea, ctx)
         if len(resultado) > config.MAX_RESULTADO:
             resultado = resultado[:config.MAX_RESULTADO] + " … (recortado)"
-        return resultado
+        # Le decimos al root qué herramientas se usaron DE VERDAD, para que no se
+        # crea un "ya guardé la nota" de un especialista que no puede guardar notas.
+        usadas = [f"{h}{'' if ok else ' (falló)'}" for a, h, ok in ctx.usadas[antes:] if a == agente]
+        return f"{resultado}\n\n[Herramientas que usó {agente}: {', '.join(usadas) or 'ninguna'}]"
+
+    def redirigir(nombre_herramienta, dueno):
+        """Si el root llama directo a una herramienta de un especialista (cosa que los
+        modelos pequeños hacen), se la pasamos al especialista que sí la tiene."""
+        def funcion(**argumentos):
+            detalle = ", ".join(f"{k}={v!r}" for k, v in argumentos.items())
+            return delegar(dueno, f"Usa la herramienta {nombre_herramienta} con: {detalle}")
+        return funcion
+
+    redirecciones = {
+        herramienta: redirigir(herramienta, nombre)
+        for nombre, especialista in ESPECIALISTAS.items()
+        for herramienta in especialista.funciones
+    }
 
     esquemas_mem, funciones_mem = herramientas_de(*HERRAMIENTAS_MEMORIA)
     return Agente(
@@ -114,9 +149,14 @@ def _crear_root(ctx: Contexto) -> Agente:
         descripcion="Coordinador",
         prompt=prompt_root,
         esquemas=[_tool_delegar()] + esquemas_mem,
-        funciones={"delegar": delegar, **funciones_mem},
+        # Las redirecciones no se le ofrecen al modelo (no están en `esquemas`);
+        # solo atrapan las llamadas directas que haga por error.
+        funciones={**redirecciones, "delegar": delegar, **funciones_mem},
         max_pasos=config.MAX_PASOS_ROOT,
         temperatura=0.3,
+        pista_vacia=("Tu respuesta anterior llegó vacía. Recuerda: tus únicas herramientas son "
+                     "delegar y las de memoria. Llama a delegar con un JSON válido "
+                     "{\"agente\": ..., \"tarea\": ...} o responde con texto al usuario."),
     )
 
 

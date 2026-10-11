@@ -12,8 +12,10 @@ Las dos piezas de cualquier agente del sistema:
     "pensar -> llamar herramienta -> ver resultado -> repetir".
 """
 
+import re
 import json
 import inspect
+from types import SimpleNamespace
 
 import ollama
 
@@ -29,6 +31,7 @@ class Contexto:
         self.cancelado = cancelado        # () -> bool
         self.delegaciones = 0
         self.acciones = []
+        self.usadas = []                  # [(agente, herramienta, ok)] en orden
 
     # ---------- utilidades ----------
 
@@ -70,6 +73,7 @@ class Contexto:
                 registro.error(f"[{agente.nombre}] {nombre}({args}): {e}")
 
         resultado = str(resultado)
+        self.usadas.append((agente.nombre, nombre, not _es_fallo(resultado)))
         registro.accion(f"[{agente.nombre}] {nombre}({args}) -> {resultado[:300]}")
         if nombre == "delegar":
             self.avisar(f"[{args.get('agente', '?')}] terminó: {resultado[:300]}",
@@ -93,8 +97,11 @@ class Contexto:
 
 
 class Agente:
+    PISTA_VACIA = ("Tu respuesta anterior llegó vacía. Responde de nuevo: llama a UNA de tus "
+                   "herramientas con argumentos JSON válidos, o escribe tu respuesta en texto.")
+
     def __init__(self, nombre, descripcion, prompt, esquemas, funciones,
-                 sensibles=(), modelo=None, max_pasos=None, temperatura=0.2):
+                 sensibles=(), modelo=None, max_pasos=None, temperatura=0.2, pista_vacia=None):
         self.nombre = nombre
         self.descripcion = descripcion
         self._prompt = prompt                  # str o función que devuelve str
@@ -104,6 +111,7 @@ class Agente:
         self._modelo = modelo                  # None = usar config.MODELO
         self.max_pasos = max_pasos or config.MAX_PASOS_ESPECIALISTA
         self.temperatura = temperatura
+        self.pista_vacia = pista_vacia or self.PISTA_VACIA
 
     # ---------- propiedades dinámicas ----------
 
@@ -123,31 +131,66 @@ class Agente:
 
     # ---------- bucle principal ----------
 
+    def _llamar_modelo(self, mensajes, ctx, on_token):
+        """Una llamada al modelo con streaming. Devuelve (contenido, tool_calls, info, cancelado)."""
+        contenido, tool_calls, info = "", [], {}
+        respuesta = ollama.chat(
+            model=self.modelo, messages=mensajes,
+            tools=self.esquemas or None, stream=True,
+            options={"num_ctx": config.NUM_CTX, "temperature": self.temperatura},
+        )
+        for parte in respuesta:
+            if ctx.esta_cancelado():
+                return contenido, [], info, True
+            msg = parte.message
+            if getattr(msg, "content", None):
+                contenido += msg.content
+                if on_token:
+                    on_token(msg.content)
+            if getattr(msg, "tool_calls", None):
+                tool_calls.extend(msg.tool_calls)
+            for clave in ("done_reason", "eval_count", "prompt_eval_count"):
+                valor = getattr(parte, clave, None)
+                if valor is not None:
+                    info[clave] = valor
+        return contenido, tool_calls, info, False
+
     def bucle(self, mensajes, ctx, on_token=None, max_pasos=None) -> str:
         """Bucle del agente sobre `mensajes` (se modifica en el sitio).
 
         Devuelve el texto final del modelo. Corta si se cancela o si llega al
-        límite de pasos (así nunca se queda en un bucle infinito)."""
+        límite de pasos (así nunca se queda en un bucle infinito).
+
+        Arreglos para modelos pequeños (qwen2.5:7b y similares):
+          - Si el modelo escribe la llamada a una herramienta como TEXTO
+            (<tool_call>{...}</tool_call> o un JSON suelto), se interpreta igual.
+          - Si la respuesta llega totalmente vacía, se reintenta una vez con una
+            pista, y se deja constancia en logs/agente.log para diagnosticar."""
         max_pasos = max_pasos or self.max_pasos
         for _ in range(max_pasos):
-            contenido, tool_calls = "", []
             try:
-                respuesta = ollama.chat(
-                    model=self.modelo, messages=mensajes,
-                    tools=self.esquemas or None, stream=True,
-                    options={"num_ctx": config.NUM_CTX, "temperature": self.temperatura},
-                )
-                for parte in respuesta:
-                    if ctx.esta_cancelado():
-                        mensajes.append({"role": "assistant", "content": contenido})
+                contenido, tool_calls, info, cancelado = self._llamar_modelo(mensajes, ctx, on_token)
+                if cancelado:
+                    mensajes.append({"role": "assistant", "content": contenido})
+                    return contenido or "(generación detenida)"
+
+                if not tool_calls:
+                    tool_calls, contenido = extraer_llamadas_de_texto(contenido, self.funciones)
+
+                if not tool_calls and not contenido.strip():
+                    registro.error(f"[{self.nombre}] El modelo respondió vacío {info}. Reintento con pista.")
+                    pista = {"role": "user", "content": self.pista_vacia}
+                    mensajes.append(pista)
+                    try:
+                        contenido, tool_calls, info, cancelado = self._llamar_modelo(mensajes, ctx, on_token)
+                    finally:
+                        mensajes.remove(pista)   # la pista no queda en el historial
+                    if cancelado:
                         return contenido or "(generación detenida)"
-                    msg = parte.message
-                    if getattr(msg, "content", None):
-                        contenido += msg.content
-                        if on_token:
-                            on_token(msg.content)
-                    if getattr(msg, "tool_calls", None):
-                        tool_calls.extend(msg.tool_calls)
+                    if not tool_calls:
+                        tool_calls, contenido = extraer_llamadas_de_texto(contenido, self.funciones)
+                    if not tool_calls and not contenido.strip():
+                        registro.error(f"[{self.nombre}] Vacío también tras reintentar {info}.")
             except Exception as e:
                 registro.error(f"[{self.nombre}] Error al contactar el modelo: {e}")
                 return f"Error al contactar el modelo ({self.modelo}): {e}"
@@ -179,12 +222,76 @@ class Agente:
                     {"role": "user", "content": tarea}]
         texto = self.bucle(mensajes, ctx).strip()
         if not texto:
-            # Algunos modelos no escriben resumen final: devolvemos lo último que pasó.
-            texto = f"Hecho. Último resultado: {_ultimo_resultado(mensajes)}"
+            if _ultimo_resultado(mensajes) == "(ninguno)":
+                texto = (f"[{self.nombre}] No completé la tarea: el modelo no devolvió "
+                         "ninguna respuesta ni usó herramientas.")
+            else:
+                # Usó herramientas pero no escribió resumen: devolvemos lo último que pasó.
+                texto = f"Terminé sin escribir resumen. Último resultado: {_ultimo_resultado(mensajes)}"
         return texto
 
 
 # ---------- funciones auxiliares ----------
+
+_ETIQUETA_TOOL = re.compile(r"<tool_call>\s*(.*?)\s*(?:</tool_call>|$)", re.S)
+
+
+def _objetos_json(texto):
+    """Encuentra objetos JSON {...} completos dentro de un texto."""
+    decodificador = json.JSONDecoder()
+    i = 0
+    while True:
+        i = texto.find("{", i)
+        if i < 0:
+            return
+        try:
+            obj, fin = decodificador.raw_decode(texto, i)
+            yield obj, i, fin
+            i = fin
+        except ValueError:
+            i += 1
+
+
+def extraer_llamadas_de_texto(contenido, funciones):
+    """Algunos modelos escriben la llamada a la herramienta como texto en vez de
+    usar el canal de herramientas. Si el texto contiene una llamada válida a una
+    herramienta conocida, la convierte en llamada real.
+
+    Devuelve (tool_calls, contenido_sin_las_llamadas)."""
+    if not contenido or "{" not in contenido:
+        return [], contenido
+    texto = contenido
+    candidatos = [m.group(1) for m in _ETIQUETA_TOOL.finditer(texto)] or [texto]
+    llamadas, tramos = [], []
+    for candidato in candidatos:
+        for obj, ini, fin in _objetos_json(candidato):
+            if not isinstance(obj, dict):
+                continue
+            if isinstance(obj.get("function"), dict):   # formato {"function": {...}}
+                obj = obj["function"]
+            nombre = obj.get("name")
+            argumentos = obj.get("arguments", obj.get("parameters", {}))
+            if isinstance(argumentos, str):
+                try:
+                    argumentos = json.loads(argumentos)
+                except json.JSONDecodeError:
+                    continue
+            if nombre in funciones and isinstance(argumentos, dict):
+                llamadas.append(SimpleNamespace(
+                    function=SimpleNamespace(name=nombre, arguments=argumentos)))
+                if candidato is texto:
+                    tramos.append((ini, fin))
+    if not llamadas:
+        return [], contenido
+    if candidatos and candidatos[0] is not texto:
+        limpio = _ETIQUETA_TOOL.sub("", texto)
+    else:
+        limpio = texto
+        for ini, fin in reversed(tramos):
+            limpio = limpio[:ini] + limpio[fin:]
+    limpio = re.sub(r"```(?:json)?\s*```", "", limpio).strip()
+    return llamadas, limpio
+
 
 def _normalizar_argumentos(argumentos) -> dict:
     """Los argumentos llegan como dict, pero algunos modelos los mandan como texto JSON."""
