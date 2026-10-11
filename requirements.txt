@@ -1,6 +1,6 @@
-# Núcleo del agente
+# Núcleo del agente e interfaz
 ollama>=0.6.2
-customtkinter>=5.2
+flask>=3.0
 requests>=2.31
 ddgs>=9.0
 pypdf>=4.0
@@ -18,3 +18,9 @@ piper-tts>=1.2
 
 # Pruebas
 pytest>=8.0
+
+# Ventana propia (opcional). Sin esto, la app se abre en Chrome/Edge en modo
+# ventana o en tu navegador. En Linux usa la variante con Qt:
+#   pip install "pywebview[qt]"
+# En Windows y macOS basta con:
+#   pip install pywebview

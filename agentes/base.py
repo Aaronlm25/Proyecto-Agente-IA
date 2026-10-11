@@ -22,9 +22,10 @@ from agentes import config
 
 
 class Contexto:
-    def __init__(self, confirmador=None, on_accion=None, cancelado=None):
+    def __init__(self, confirmador=None, on_accion=None, cancelado=None, on_evento=None):
         self.confirmador = confirmador    # (nombre, args) -> bool
-        self.on_accion = on_accion        # (linea) -> None
+        self.on_accion = on_accion        # (linea) -> None           texto para mostrar
+        self.on_evento = on_evento        # (dict) -> None            datos estructurados
         self.cancelado = cancelado        # () -> bool
         self.delegaciones = 0
         self.acciones = []
@@ -34,14 +35,18 @@ class Contexto:
     def esta_cancelado(self) -> bool:
         return bool(self.cancelado and self.cancelado())
 
-    def avisar(self, linea: str) -> None:
-        """Registra una línea de actividad y la manda a la interfaz."""
+    def avisar(self, linea: str, **info) -> None:
+        """Registra una línea de actividad y la manda a la interfaz.
+
+        `info` son datos estructurados (tipo, agente, herramienta...) para las
+        interfaces que quieren dibujar la actividad con más detalle."""
         self.acciones.append(linea)
-        if self.on_accion:
-            try:
-                self.on_accion(linea)
-            except Exception as e:
-                registro.error(f"on_accion falló: {e}")
+        for callback, dato in ((self.on_accion, linea), (self.on_evento, {**info, "linea": linea})):
+            if callback:
+                try:
+                    callback(dato)
+                except Exception as e:
+                    registro.error(f"Callback de actividad falló: {e}")
 
     # ---------- ejecución de herramientas ----------
 
@@ -67,9 +72,13 @@ class Contexto:
         resultado = str(resultado)
         registro.accion(f"[{agente.nombre}] {nombre}({args}) -> {resultado[:300]}")
         if nombre == "delegar":
-            self.avisar(f"[{args.get('agente', '?')}] terminó: {resultado[:300]}")
+            self.avisar(f"[{args.get('agente', '?')}] terminó: {resultado[:300]}",
+                        tipo="termino", agente=args.get("agente", "?"), resultado=resultado[:1500])
         else:
-            self.avisar(f"[{agente.nombre}] {nombre}({_corto(args)}) -> {resultado[:300]}")
+            self.avisar(f"[{agente.nombre}] {nombre}({_corto(args)}) -> {resultado[:300]}",
+                        tipo="herramienta", agente=agente.nombre, herramienta=nombre,
+                        argumentos=_corto(args, 300), resultado=resultado[:1500],
+                        ok=not _es_fallo(resultado))
         return resultado
 
     def _confirmar(self, nombre, args) -> bool:
@@ -226,6 +235,12 @@ def _ultimo_resultado(mensajes) -> str:
             contenido = m.get("content") if isinstance(m, dict) else m.content
             return str(contenido)[:500]
     return "(ninguno)"
+
+
+def _es_fallo(resultado: str) -> bool:
+    inicio = resultado[:40].lower()
+    return inicio.startswith(("error", "rechazado", "acción '", "no se pudo", "no pude",
+                              "no encontré", "no existe", "formato inválido"))
 
 
 def _corto(args, maximo=150) -> str:

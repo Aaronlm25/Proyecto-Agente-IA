@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="es" data-theme="system">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta name="token" content="{{TOKEN}}">
+  <title>Agente de IA Local</title>
+  <link rel="icon" href="/favicon.ico" type="image/svg+xml">
+  <link rel="preload" href="/static/vendor/fonts/figtree-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/static/vendor/fonts/source-serif-4-latin-opsz-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <!-- Iconos (se usan con <svg><use href="#i-..."/></svg>) -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+      <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+      <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.2-4.2"/></symbol>
+      <symbol id="i-settings" viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></symbol>
+      <symbol id="i-clip" viewBox="0 0 24 24"><path d="m20.5 11.5-8.3 8.3a5 5 0 0 1-7.1-7.1l8.6-8.6a3.4 3.4 0 0 1 4.8 4.8l-8.6 8.6a1.7 1.7 0 0 1-2.4-2.4l7.9-7.9"/></symbol>
+      <symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></symbol>
+      <symbol id="i-wave" viewBox="0 0 24 24"><path d="M3 12h1.5M7 8v8M10.5 5v14M14 9v6M17.5 7v10M21 12h-1"/></symbol>
+      <symbol id="i-speaker" viewBox="0 0 24 24"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11"/></symbol>
+      <symbol id="i-speaker-off" viewBox="0 0 24 24"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="m16 9.5 5 5M21 9.5l-5 5"/></symbol>
+      <symbol id="i-send" viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></symbol>
+      <symbol id="i-stop" viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="2" class="relleno"/></symbol>
+      <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+      <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4.5 7h15M9.5 7V4.5h5V7M6.5 7l.8 12.5h9.4L17.5 7"/></symbol>
+      <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8.5" y="8.5" width="11" height="11" rx="2"/><path d="M15.5 8.5V6a1.5 1.5 0 0 0-1.5-1.5H6A1.5 1.5 0 0 0 4.5 6v8A1.5 1.5 0 0 0 6 15.5h2.5"/></symbol>
+      <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></symbol>
+      <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></symbol>
+      <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h10"/></symbol>
+      <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 4 2.8 19.5h18.4z"/><path d="M12 10v4.5M12 17.2v.3"/></symbol>
+      <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 3.5H7A1.5 1.5 0 0 0 5.5 5v14A1.5 1.5 0 0 0 7 20.5h10a1.5 1.5 0 0 0 1.5-1.5V8z"/><path d="M14 3.5V8h4.5"/></symbol>
+      <symbol id="i-redo" viewBox="0 0 24 24"><path d="M19 5v5h-5"/><path d="M19 10A7.5 7.5 0 1 0 19.5 14"/></symbol>
+    </defs>
+  </svg>
+
+  <div class="app" id="app">
+    <!-- ================= Barra lateral ================= -->
+    <aside class="lateral" id="lateral" aria-label="Conversaciones">
+      <div class="marca">
+        <img src="/favicon.ico" alt="" width="28" height="28">
+        <span>Agente local</span>
+      </div>
+
+      <button class="boton-nuevo" id="nuevoChat" type="button">
+        <svg class="ico"><use href="#i-plus"/></svg>
+        Nuevo chat
+        <kbd>Ctrl K</kbd>
+      </button>
+
+      <label class="buscador">
+        <svg class="ico"><use href="#i-search"/></svg>
+        <input id="buscar" type="search" placeholder="Buscar chats" autocomplete="off">
+      </label>
+
+      <nav class="lista-chats" id="listaChats" aria-label="Chats recientes"></nav>
+
+      <button class="boton-ajustes" id="abrirAjustes" type="button">
+        <svg class="ico"><use href="#i-settings"/></svg>
+        Ajustes
+      </button>
+    </aside>
+    <div class="velo" id="velo"></div>
+
+    <!-- ================= Panel principal ================= -->
+    <main class="principal">
+      <header class="cabecera">
+        <button class="icono-boton solo-movil" id="abrirLateral" type="button" aria-label="Abrir conversaciones">
+          <svg class="ico"><use href="#i-menu"/></svg>
+        </button>
+        <h1 class="titulo-chat" id="tituloChat">Nuevo chat</h1>
+        <span class="estado-conexion" id="estadoConexion" hidden>Reconectando…</span>
+      </header>
+
+      <section class="conversacion" id="conversacion" aria-live="polite">
+        <div class="hilo" id="hilo"></div>
+
+        <div class="bienvenida" id="bienvenida" hidden>
+          <h2 class="saludo" id="saludo">Hola</h2>
+          <p class="subtitulo">Pídeme algo y repartiré el trabajo entre mis especialistas.</p>
+        </div>
+      </section>
+
+      <!-- ================= Compositor ================= -->
+      <div class="zona-compositor">
+        <div class="sugerencias" id="sugerencias"></div>
+        <form class="compositor" id="compositor" autocomplete="off">
+          <div class="adjunto" id="adjunto" hidden>
+            <svg class="ico"><use href="#i-file"/></svg>
+            <span id="adjuntoNombre"></span>
+            <button type="button" class="icono-boton mini" id="quitarAdjunto" aria-label="Quitar archivo">
+              <svg class="ico"><use href="#i-x"/></svg>
+            </button>
+          </div>
+          <textarea id="entrada" rows="1" placeholder="Escribe lo que necesitas…" aria-label="Mensaje"></textarea>
+          <div class="barra-compositor">
+            <div class="grupo">
+              <button type="button" class="icono-boton" id="botonAdjuntar" title="Adjuntar archivo (PDF, texto, CSV, Excel o imagen)" aria-label="Adjuntar archivo">
+                <svg class="ico"><use href="#i-clip"/></svg>
+              </button>
+              <input type="file" id="archivo" hidden
+                     accept=".pdf,.txt,.md,.py,.json,.csv,.tsv,.xlsx,.xls,.png,.jpg,.jpeg,.webp,.html,.js,.css,.log">
+              <button type="button" class="icono-boton" id="botonDictar" title="Dictar con el micrófono" aria-label="Dictar" aria-pressed="false">
+                <svg class="ico"><use href="#i-mic"/></svg>
+              </button>
+              <button type="button" class="icono-boton" id="botonConversacion" title="Conversación por voz, manos libres" aria-label="Conversación por voz" aria-pressed="false">
+                <svg class="ico"><use href="#i-wave"/></svg>
+              </button>
+            </div>
+            <div class="grupo">
+              <button type="button" class="icono-boton" id="botonAltavoz" title="Leer las respuestas en voz alta" aria-label="Leer respuestas en voz alta" aria-pressed="false">
+                <svg class="ico"><use href="#i-speaker-off"/></svg>
+              </button>
+              <button type="submit" class="boton-enviar" id="botonEnviar" aria-label="Enviar" disabled>
+                <svg class="ico"><use href="#i-send"/></svg>
+              </button>
+            </div>
+          </div>
+        </form>
+        <p class="nota-pie" id="notaPie">El agente puede equivocarse. Revisa lo que hace antes de darlo por bueno.</p>
+      </div>
+    </main>
+  </div>
+
+  <!-- ================= Diálogos ================= -->
+  <dialog class="dialogo" id="dialogoConfirmar">
+    <form method="dialog">
+      <div class="dialogo-icono aviso"><svg class="ico"><use href="#i-alert"/></svg></div>
+      <h3 id="confirmarTitulo">¿Permitir esta acción?</h3>
+      <p class="dialogo-texto" id="confirmarTexto"></p>
+      <pre class="dialogo-codigo" id="confirmarCodigo"></pre>
+      <div class="dialogo-botones">
+        <button class="boton secundario" value="no" type="submit">Rechazar</button>
+        <button class="boton primario" value="si" type="submit" autofocus>Permitir</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog class="dialogo ancho" id="dialogoPlan">
+    <form method="dialog">
+      <h3>Este es el plan</h3>
+      <p class="dialogo-texto">Revísalo antes de que el agente empiece a trabajar.</p>
+      <div class="dialogo-plan prosa" id="planTexto"></div>
+      <div class="dialogo-botones">
+        <button class="boton secundario" value="no" type="submit">Cancelar</button>
+        <button class="boton primario" value="si" type="submit" autofocus>Ejecutar plan</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog class="dialogo" id="dialogoAjustes">
+    <form method="dialog" id="formAjustes">
+      <div class="dialogo-cabecera">
+        <h3>Ajustes</h3>
+        <button class="icono-boton" value="cerrar" type="submit" aria-label="Cerrar">
+          <svg class="ico"><use href="#i-x"/></svg>
+        </button>
+      </div>
+
+      <label class="campo">
+        <span>Modelo de Ollama</span>
+        <select id="ajusteModelo"></select>
+      </label>
+
+      <fieldset class="campo">
+        <legend>Apariencia</legend>
+        <div class="segmentado" role="radiogroup">
+          <label><input type="radio" name="tema" value="light"><span>Claro</span></label>
+          <label><input type="radio" name="tema" value="dark"><span>Oscuro</span></label>
+          <label><input type="radio" name="tema" value="system"><span>Como el sistema</span></label>
+        </div>
+      </fieldset>
+
+      <label class="interruptor">
+        <span>
+          <strong>Pedir permiso antes de usar la terminal</strong>
+          <small>Comandos, instalaciones y git esperan tu confirmación.</small>
+        </span>
+        <input type="checkbox" id="ajusteConfirmaciones">
+      </label>
+      <label class="interruptor">
+        <span>
+          <strong>Mostrar el plan antes de actuar</strong>
+          <small>El agente explica sus pasos y espera tu aprobación.</small>
+        </span>
+        <input type="checkbox" id="ajustePlan">
+      </label>
+      <label class="interruptor">
+        <span>
+          <strong>Leer las respuestas en voz alta</strong>
+          <small>Usa la voz instalada en la carpeta voces/.</small>
+        </span>
+        <input type="checkbox" id="ajusteAltavoz">
+      </label>
+
+      <div class="dialogo-botones">
+        <button class="boton primario" value="guardar" type="submit">Guardar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div class="avisos" id="avisos" role="status" aria-live="polite"></div>
+
+  <script src="/static/vendor/marked.umd.js"></script>
+  <script src="/static/vendor/purify.min.js"></script>
+  <script src="/static/vendor/highlight.min.js"></script>
+  <script src="/static/app.js"></script>
+</body>
+</html>

@@ -102,7 +102,7 @@ def _crear_root(ctx: Contexto) -> Agente:
         if not (tarea or "").strip():
             return "La tarea está vacía: describe qué debe hacer el especialista."
         ctx.delegaciones += 1
-        ctx.avisar(f"[root] → {agente}: {tarea}")
+        ctx.avisar(f"[root] → {agente}: {tarea}", tipo="delegacion", agente=agente, tarea=tarea)
         resultado = especialista.ejecutar(tarea, ctx)
         if len(resultado) > config.MAX_RESULTADO:
             resultado = resultado[:config.MAX_RESULTADO] + " … (recortado)"
@@ -141,7 +141,7 @@ def _generar_plan(mensajes) -> str:
 
 
 def procesar(peticion, mensajes, confirmador=None, on_token=None, on_accion=None,
-             cancelado=None, planificador=None):
+             cancelado=None, planificador=None, on_evento=None):
     """Procesa una petición del usuario con el sistema multiagente.
 
     - mensajes: historial del chat (se modifica en el sitio).
@@ -149,6 +149,7 @@ def procesar(peticion, mensajes, confirmador=None, on_token=None, on_accion=None
       Si es None, las herramientas sensibles se RECHAZAN (seguro por defecto).
     - on_token(texto): fragmentos de la respuesta del root (streaming).
     - on_accion(linea): actividad de los agentes ("[web] buscar_web(...) -> ...").
+    - on_evento(dict): la misma actividad en datos estructurados (para la interfaz web).
     - cancelado() -> bool: si devuelve True, todo se detiene.
     - planificador(plan) -> bool: modo plan; si devuelve False no se ejecuta nada.
 
@@ -161,7 +162,8 @@ def procesar(peticion, mensajes, confirmador=None, on_token=None, on_accion=None
         mensajes.insert(0, sistema)
 
     mensajes.append({"role": "user", "content": peticion})
-    ctx = Contexto(confirmador=confirmador, on_accion=on_accion, cancelado=cancelado)
+    ctx = Contexto(confirmador=confirmador, on_accion=on_accion, cancelado=cancelado,
+                   on_evento=on_evento)
 
     if planificador is not None:
         plan = _generar_plan(mensajes)

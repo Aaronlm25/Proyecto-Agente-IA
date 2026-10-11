@@ -12,7 +12,8 @@ especialistas**, cada uno con sus propias herramientas.
 
 - **Arquitectura multiagente:** un root que planifica y delega + 5 especialistas.
 - **Modelo local:** Ollama + Qwen 2.5 (configurable desde Ajustes).
-- **Interfaz de escritorio** tipo chat (CustomTkinter) y versión de terminal.
+- **Interfaz moderna** (HTML/CSS) que se ve nítida en Linux, Windows y macOS, con tema claro
+  y oscuro, y la actividad de cada agente en vivo. También hay versión de terminal.
 - **Voz:** reconocimiento (Vosk) y síntesis (Piper) en español.
 - **Visión:** lee imágenes, gráficas y tablas fotografiadas.
 - **Memoria:** recuerda datos del usuario entre sesiones.
@@ -49,7 +50,10 @@ mejor así que con 17 a la vez) y empieza cada subtarea con un historial limpio.
 
 - [Ollama](https://ollama.com/) + [Qwen 2.5 7B](https://ollama.com/library/qwen2.5)
 - [Vosk](https://alphacephei.com/vosk/) (voz → texto) y [Piper](https://github.com/rhasspy/piper) (texto → voz)
-- pandas + matplotlib, CustomTkinter, DuckDuckGo Search (`ddgs`)
+- pandas + matplotlib, DuckDuckGo Search (`ddgs`)
+- Interfaz: Flask + HTML/CSS/JS (marked, DOMPurify, highlight.js; fuentes Figtree,
+  Source Serif 4 y JetBrains Mono incluidas, sin depender de internet)
+- Ventana: pywebview (opcional) o Chrome/Edge en modo aplicación
 - Python 3.11 · conda · pytest
 
 ## 🚀 Instalación (Linux)
@@ -59,8 +63,8 @@ mejor así que con 17 a la vez) y empieza cada subtarea con un historial limpio.
 git clone https://github.com/Aaronlm25/mi-agente-ia.git
 cd mi-agente-ia
 
-# 2. Librerías del sistema (interfaz gráfica y micrófono)
-sudo apt install python3-tk libportaudio2
+# 2. Librería del sistema para el micrófono (solo si usarás la voz)
+sudo apt install libportaudio2
 
 # 3. Entorno de Python (instala también requirements.txt)
 conda env create -f environment.yml
@@ -71,6 +75,10 @@ conda activate mi-agente-ia
 curl -fsSL https://ollama.com/install.sh | sh
 ollama pull qwen2.5:7b
 ollama pull qwen2.5vl:7b      # opcional: para leer imágenes
+
+# 5. (Opcional) Ventana propia en lugar de Chrome/Edge
+pip install "pywebview[qt]"   # Linux
+pip install pywebview         # Windows / macOS
 ```
 
 Para la voz (opcional) necesitas el modelo de Vosk en
@@ -79,9 +87,28 @@ Para la voz (opcional) necesitas el modelo de Vosk en
 ## 💻 Uso
 
 ```bash
-python app.py     # interfaz gráfica
-python main.py    # versión de terminal
+python app.py               # interfaz gráfica
+python app.py --navegador   # forzar Chrome/Edge o el navegador
+python app.py --servidor    # solo el servidor; abre la dirección que muestra
+python main.py              # versión de terminal
 ```
+
+`app.py` abre la interfaz en una ventana propia con pywebview si lo tienes instalado.
+Si no, usa Chrome, Chromium, Edge o Brave en modo aplicación (una ventana sin pestañas),
+y si tampoco hay ninguno, tu navegador predeterminado.
+
+### La interfaz
+
+- **Actividad de los agentes:** cada respuesta muestra qué especialista trabajó, con qué
+  herramientas y qué devolvió. Haz clic en el resumen para desplegarlo.
+- **Confirmaciones:** cuando el agente sistema quiere usar la terminal, aparece una ventana
+  con el comando exacto para que lo permitas o lo rechaces.
+- **Adjuntos:** botón del clip o arrastra el archivo a la ventana (PDF, texto, CSV, Excel,
+  imágenes). Se guardan en `workspace/adjuntos/`.
+- **Voz:** el micrófono dicta un mensaje; el botón de ondas activa la conversación manos
+  libres; el altavoz lee las respuestas.
+- **Atajos:** `Enter` envía, `Shift+Enter` hace un salto de línea, `Esc` detiene,
+  `Ctrl+K` abre un chat nuevo y `↑` recupera tu último mensaje.
 
 Ejemplos:
 
@@ -116,9 +143,12 @@ Inicializa git en tienda-online y haz un commit
 
 ```
 .
-├── app.py                  # Interfaz gráfica
+├── app.py                  # Abre la interfaz (ventana propia, Chrome/Edge o navegador)
 ├── main.py                 # Versión de terminal
 ├── agente.py               # Gestión de chats (guardar, cargar, listar)
+├── interfaz/
+│   ├── servidor.py         # Servidor local: API + eventos en vivo
+│   └── static/             # index.html, app.css, app.js, fuentes y librerías
 ├── agentes/
 │   ├── config.py           # Modelo, límites, tamaño de contexto
 │   ├── base.py             # Clase Agente (bucle) y Contexto (confirmaciones, cancelación)
@@ -138,7 +168,6 @@ Inicializa git en tienda-online y haz un commit
 ├── lectura.py              # Lee PDFs y texto adjuntos
 ├── registro.py             # Logs en logs/agente.log
 ├── tests/                  # Pruebas con modelo simulado (no necesitan Ollama)
-├── scripts/                # Utilidades (prueba de fuentes de Tkinter)
 ├── modelos/  voces/        # Modelos de voz
 └── workspace/              # Salida del agente (no se sube al repo)
 ```
@@ -154,6 +183,8 @@ Inicializa git en tienda-online y haz un commit
   imports, sin `open`, sin leer/escribir archivos).
 - **Web:** el agente web tiene instrucciones de ignorar órdenes escritas dentro de
   las páginas.
+- **Interfaz:** el servidor solo escucha en `127.0.0.1` y cada sesión usa un token
+  secreto, así que ninguna otra página de tu navegador puede darle órdenes al agente.
 
 ⚠️ Esto reduce mucho el riesgo, pero no es una sandbox completa: por ejemplo,
 `python script.py` ejecuta lo que diga ese script. No desactives las
