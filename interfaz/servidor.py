@@ -34,7 +34,7 @@ from tools.filesystem import ruta_segura, nombre_archivo_seguro, BASE_DIR
 
 RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ESTATICOS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
-RUTA_AJUSTES = os.path.join(RAIZ, "ajustes.json")
+RUTA_AJUSTES = config.RUTA_AJUSTES   # un solo archivo de ajustes para todo
 
 EXT_DATOS = (".csv", ".tsv", ".xlsx", ".xls")
 EXT_IMAGEN = (".png", ".jpg", ".jpeg", ".webp")
@@ -42,6 +42,8 @@ MAX_ADJUNTO = 25 * 1024 * 1024  # 25 MB
 
 AJUSTES_POR_DEFECTO = {
     "modelo": config.MODELO,
+    "modelo_vision": config.MODELO_VISION,
+    "pensar": bool(config.PENSAR),
     "tema": "system",
     "confirmaciones": True,
     "altavoz": False,
@@ -86,6 +88,8 @@ class Estado:
         self.lock = threading.Lock()
         self.ajustes = cargar_ajustes()
         config.MODELO = self.ajustes["modelo"]
+        config.MODELO_VISION = self.ajustes["modelo_vision"]
+        config.PENSAR = self.ajustes["pensar"]
         self.generando = False
         self.cancelar = threading.Event()
         self.pendientes = {}          # id -> {"evento", "respuesta", "datos"}
@@ -397,9 +401,10 @@ def crear_app(token=None, hosts_permitidos=None):
     @app.get("/api/modelos")
     def api_modelos():
         modelos = agente.modelos_disponibles()
-        if config.MODELO not in modelos:
-            modelos = [config.MODELO] + modelos
-        return jsonify(modelos=modelos, actual=config.MODELO)
+        for actual in (config.MODELO_VISION, config.MODELO):
+            if actual not in modelos:
+                modelos = [actual] + modelos
+        return jsonify(modelos=modelos, actual=config.MODELO, vision=config.MODELO_VISION)
 
     @app.post("/api/ajustes")
     def api_ajustes():
@@ -413,6 +418,8 @@ def crear_app(token=None, hosts_permitidos=None):
             nuevos["tema"] = "system"
         estado.ajustes = nuevos
         config.MODELO = nuevos["modelo"]
+        config.MODELO_VISION = nuevos["modelo_vision"]
+        config.PENSAR = nuevos["pensar"]
         guardar_ajustes(nuevos)
         bus.publicar("ajustes", ajustes=nuevos)
         return jsonify(ajustes=nuevos)

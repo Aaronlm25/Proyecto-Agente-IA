@@ -6,7 +6,7 @@ Versión de terminal del agente multiagente.
 """
 
 import agente
-from agentes import root
+from agentes import config, root
 
 
 def confirmar(nombre, argumentos):
@@ -16,7 +16,9 @@ def confirmar(nombre, argumentos):
 
 
 def main():
-    print("Agente de IA local (multiagente). Escribe lo que quieres hacer (o 'salir').\n")
+    print("Agente de IA local (multiagente). Escribe lo que quieres hacer (o 'salir').")
+    print(f"Modelo: {config.MODELO} | imágenes: {config.MODELO_VISION} | "
+          f"razonar: {'sí' if config.PENSAR else 'no'}  (se cambian en ajustes.json)\n")
     chat_id = agente.crear_chat()
     mensajes = agente.cargar_chat(chat_id)  # incluye el prompt del root con tus recuerdos
     while True:

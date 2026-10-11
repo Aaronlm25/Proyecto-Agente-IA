@@ -122,15 +122,36 @@ Inicializa git en tienda-online y haz un commit
 
 ## ⚙️ Configuración
 
-`agentes/config.py`:
+**Los modelos se eligen en un solo lugar: `ajustes.json`**, en la raíz del proyecto.
+Lo leen la interfaz, la versión de terminal y el script de pruebas.
 
-| Variable | Para qué sirve |
+```json
+{
+  "modelo": "qwen3:8b",
+  "modelo_vision": "qwen2.5vl:7b",
+  "pensar": false,
+  "tema": "dark",
+  "confirmaciones": true,
+  "altavoz": false,
+  "modo_plan": false
+}
+```
+
+| Clave | Para qué sirve |
 |---|---|
-| `MODELO` | Modelo de texto (también se cambia desde Ajustes) |
-| `MODELO_VISION` | Modelo para imágenes |
-| `NUM_CTX` | Tamaño de contexto en tokens (súbelo si tienes memoria) |
-| `MAX_DELEGACIONES` | Delegaciones máximas por petición |
-| `MAX_PASOS_ROOT` / `MAX_PASOS_ESPECIALISTA` | Límite de pasos para evitar bucles |
+| `modelo` | Modelo de texto de todos los agentes (root y especialistas) |
+| `modelo_vision` | Modelo con el que el especialista `datos` lee imágenes |
+| `pensar` | Que el modelo razone antes de responder (qwen3). `false` es mucho más rápido sin GPU |
+| `tema` | `light`, `dark` o `system` |
+| `confirmaciones` | Pedir permiso antes de usar la terminal |
+| `altavoz` | Leer las respuestas en voz alta |
+| `modo_plan` | Mostrar el plan antes de actuar |
+
+También puedes cambiarlos desde la ventana **Ajustes** de la app; se guardan en el mismo
+archivo. Escribe los nombres tal como aparecen en `ollama list`.
+
+En `agentes/config.py` quedan los ajustes avanzados (`NUM_CTX`, límites de pasos y de
+delegaciones) y los modelos de respaldo por si `ajustes.json` no existe.
 
 ## ➕ Cómo agregar un especialista
 

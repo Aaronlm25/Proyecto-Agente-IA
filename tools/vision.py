@@ -7,7 +7,7 @@ no "ve" imágenes). Antes de usarla, instala uno:
     ollama pull llama3.2-vision     # alternativa equilibrada
     ollama pull moondream           # ligero, para equipos modestos
 
-El modelo se configura en agentes/config.py (MODELO_VISION).
+El modelo se elige en ajustes.json ("modelo_vision") o en la ventana de Ajustes.
 """
 
 import os

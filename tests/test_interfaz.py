@@ -207,3 +207,24 @@ def test_ajustes_se_guardan(servidor, tmp_path):
     assert config.MODELO == "otro:1b"
     assert '"dark"' in (tmp_path / "ajustes.json").read_text()
     config.MODELO = "qwen2.5:7b"
+
+
+def test_modelo_de_vision_se_guarda_y_se_aplica(servidor, tmp_path):
+    from agentes import config
+    cliente, _, _ = servidor
+    antes = config.MODELO_VISION
+    r = cliente.post("/api/ajustes", json={"modelo_vision": "llama3.2-vision"}, headers=h())
+    assert r.json["ajustes"]["modelo_vision"] == "llama3.2-vision"
+    assert config.MODELO_VISION == "llama3.2-vision"
+    assert '"modelo_vision": "llama3.2-vision"' in (tmp_path / "ajustes.json").read_text()
+    config.MODELO_VISION = antes
+
+
+def test_ajuste_pensar_se_guarda_y_se_aplica(servidor, tmp_path):
+    from agentes import config
+    cliente, _, _ = servidor
+    antes = config.PENSAR
+    r = cliente.post("/api/ajustes", json={"pensar": True}, headers=h())
+    assert r.json["ajustes"]["pensar"] is True and config.PENSAR is True
+    assert '"pensar": true' in (tmp_path / "ajustes.json").read_text()
+    config.PENSAR = antes

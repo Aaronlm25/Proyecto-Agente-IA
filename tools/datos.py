@@ -106,8 +106,7 @@ def _limpiar(codigo):
 
 def _generar_codigo(resumen, instruccion, grafica=False):
     """Pide al modelo SOLO el código (pandas o matplotlib)."""
-    import ollama
-    from agentes import config
+    from agentes import config, modelo
 
     if grafica:
         sistema = (
@@ -125,7 +124,7 @@ def _generar_codigo(resumen, instruccion, grafica=False):
             "variable llamada 'resultado'."
         )
 
-    resp = ollama.chat(
+    resp = modelo.chat(
         model=config.MODELO,
         messages=[
             {"role": "system", "content": sistema},

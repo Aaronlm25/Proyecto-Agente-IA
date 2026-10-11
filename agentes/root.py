@@ -14,16 +14,24 @@ Uso:
     texto, acciones = root.procesar("crea un proyecto web llamado tienda", mensajes)
 """
 
-import ollama
+import re
 
 import registro
-from agentes import config
+from agentes import config, modelo
 from agentes.base import Agente, Contexto
 from agentes.especialistas import ESPECIALISTAS, hoy
 from tools import memoria
 from tools.catalogo import herramientas_de
 
 HERRAMIENTAS_MEMORIA = ("recordar", "recuperar", "olvidar", "listar_recuerdos")
+
+# Marcadores que el modelo a veces copia en lugar de escribir el contenido real,
+# por ejemplo «<el resumen que devolvió web>» o «[resumen anterior]».
+MARCADOR_SIN_RELLENAR = re.compile(
+    r"[<\[{]\s*(?:el|la|los|las|aqu[ií]|tu|su|resumen|contenido|texto|resultado|lo que|"
+    r"insertar|pegar|inserta|pega)\b[^<>\[\]{}\n]{0,80}[>\]}]",
+    re.IGNORECASE,
+)
 
 
 def _tool_delegar():
@@ -81,16 +89,21 @@ def prompt_root() -> str:
         "la petición no se hizo (por ejemplo, no aparece crear_nota), delégala ahora al "
         "especialista correcto.\n"
         "5. Si el usuario rechazó o canceló una acción, díselo claramente y no la repitas.\n"
-        "6. Si el usuario menciona un dato personal importante (nombre, gustos, proyectos), "
+        "6. Haz SOLO lo que el usuario pidió. No agregues archivos, configuraciones ni pasos "
+        "extra por tu cuenta; si crees que algo más sería útil, sugiérelo al final.\n"
+        "7. Si el usuario menciona un dato personal importante (nombre, gustos, proyectos), "
         "guárdalo con `recordar`.\n"
-        "7. Al terminar, responde en español con un resumen claro de lo hecho (rutas de "
+        "8. Al terminar, responde en español con un resumen claro de lo hecho (rutas de "
         "archivos, resultados, enlaces). Nunca digas que algo se hizo si ningún "
         "especialista lo hizo.\n\n"
         "Ejemplo: «Busca qué es Python y guarda un resumen en una nota llamada python»\n"
-        "  1) delegar(agente=\"web\", tarea=\"Busca qué es Python y resume lo principal con la fuente\")\n"
-        "  2) delegar(agente=\"organizador\", tarea=\"Crea una nota llamada python con este "
-        "contenido: <el resumen que devolvió web>\")\n"
-        "  3) Responder al usuario con lo hecho.\n\n"
+        "  Paso 1: delegas a web la búsqueda: «Busca qué es Python y resume lo principal "
+        "con la fuente».\n"
+        "  Paso 2: cuando web te devuelve el resumen, delegas a organizador: «Crea una nota "
+        "llamada python con este contenido:» seguido del TEXTO COMPLETO del resumen, copiado "
+        "palabra por palabra. Nunca escribas marcadores como «el resumen anterior»: el "
+        "organizador no lo ha visto.\n"
+        "  Paso 3: le respondes al usuario con lo hecho.\n\n"
         f"Especialistas disponibles:\n{lista}"
     )
     try:
@@ -118,6 +131,11 @@ def _crear_root(ctx: Contexto) -> Agente:
                     "Responde al usuario con lo que ya tienes.")
         if not (tarea or "").strip():
             return "La tarea está vacía: describe qué debe hacer el especialista."
+        marcador = MARCADOR_SIN_RELLENAR.search(tarea)
+        if marcador:
+            return (f"No delegué: la tarea contiene «{marcador.group(0)}», que es un marcador sin "
+                    f"rellenar. El especialista no ve la conversación: escribe en la tarea el "
+                    f"contenido real (por ejemplo, el texto completo del resumen).")
         ctx.delegaciones += 1
         ctx.avisar(f"[root] → {agente}: {tarea}", tipo="delegacion", agente=agente, tarea=tarea)
         antes = len(ctx.usadas)
@@ -172,7 +190,7 @@ def _generar_plan(mensajes) -> str:
         ),
     }
     try:
-        resp = ollama.chat(model=config.MODELO, messages=mensajes + [nudge],
+        resp = modelo.chat(model=config.MODELO, messages=mensajes + [nudge],
                            options={"temperature": 0.3, "num_ctx": config.NUM_CTX})
         return resp.message.content or "(sin plan)"
     except Exception as e:

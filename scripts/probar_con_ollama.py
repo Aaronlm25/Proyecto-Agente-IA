@@ -342,12 +342,15 @@ def verificar_ollama(modelo, necesita_vision):
         sys.exit(1)
     vision = config.MODELO_VISION in nombres or f"{config.MODELO_VISION}:latest" in nombres
     if necesita_vision and not vision:
-        print(f"• Sin modelo de visión ({config.MODELO_VISION}): se salta la prueba de imágenes.")
-    print(f"✓ Ollama responde. Modelo: {modelo}")
+        print(f"• Sin modelo de visión ({config.MODELO_VISION}): se salta la prueba de imágenes.\n"
+              f"  Instálalo con: ollama pull {config.MODELO_VISION}  (o cambia \"modelo_vision\" en ajustes.json)")
+    print(f"✓ Ollama responde. Modelo: {modelo} | razonamiento: "
+          f"{'sí' if config.PENSAR else 'no' if config.PENSAR is False else 'por defecto'}")
     print("  Cargando el modelo (la primera vez tarda)…", end="", flush=True)
     t = time.time()
     try:
-        ollama.chat(model=modelo, messages=[{"role": "user", "content": "Responde solo: ok"}],
+        from agentes import modelo as llamada
+        llamada.chat(model=modelo, messages=[{"role": "user", "content": "Responde solo: ok"}],
                     options={"num_ctx": config.NUM_CTX})
     except Exception as e:  # noqa: BLE001
         print(f"\n✗ El modelo no respondió: {e}")
@@ -372,7 +375,8 @@ def escribir_reporte(filas, args, modelo, total_seg):
         "# Reporte de pruebas reales",
         "",
         f"- Fecha: {datetime.datetime.now():%Y-%m-%d %H:%M}",
-        f"- Modelo: `{modelo}` · contexto: {config.NUM_CTX} tokens",
+        f"- Modelo: `{modelo}` · contexto: {config.NUM_CTX} tokens · "
+        f"razonamiento: {'sí' if config.PENSAR else 'no' if config.PENSAR is False else 'por defecto'}",
         f"- Resultado: **{aprobadas} de {len(filas)}** ejecuciones correctas",
         f"- Tiempo total: {total_seg / 60:.1f} min",
         f"- Sistema: {sys.platform}, Python {sys.version.split()[0]}",
@@ -412,7 +416,13 @@ def escribir_reporte(filas, args, modelo, total_seg):
 
 def main():
     parser = argparse.ArgumentParser(description="Pruebas del agente con Ollama real")
-    parser.add_argument("--modelo", help="modelo de Ollama (por defecto, el de ajustes.json)")
+    parser.add_argument("--modelo", help="modelo de texto (por defecto, el de ajustes.json)")
+    parser.add_argument("--modelo-vision", help="modelo para imágenes (por defecto, el de ajustes.json)")
+    grupo = parser.add_mutually_exclusive_group()
+    grupo.add_argument("--pensar", dest="pensar", action="store_true", default=None,
+                       help="que el modelo razone antes de responder (más lento)")
+    grupo.add_argument("--sin-pensar", dest="pensar", action="store_false",
+                       help="sin razonamiento previo (más rápido)")
     parser.add_argument("--solo", help="números de prueba separados por comas, ej: 4,8,13")
     parser.add_argument("--sin-web", action="store_true", help="saltar las pruebas que usan internet")
     parser.add_argument("--repetir", type=int, default=1, help="veces que se repite cada prueba")
@@ -434,13 +444,13 @@ def main():
     from tools import memoria
     memoria.RUTA = str(CARPETA / "recuerdos.json")   # no tocar tus recuerdos reales
 
-    modelo = args.modelo
-    if not modelo:
-        try:
-            modelo = json.loads((RAIZ / "ajustes.json").read_text(encoding="utf-8")).get("modelo")
-        except (OSError, ValueError):
-            pass
-    config.MODELO = modelo or config.MODELO
+    # config ya leyó ajustes.json; --modelo / --modelo-vision lo cambian solo para esta prueba.
+    if args.modelo:
+        config.MODELO = args.modelo
+    if args.modelo_vision:
+        config.MODELO_VISION = args.modelo_vision
+    if args.pensar is not None:
+        config.PENSAR = args.pensar
 
     elegidos = todos
     if args.solo:
@@ -469,6 +479,10 @@ def main():
     aprobadas = sum(1 for f in filas if f["ok"])
     print(f"\nResultado: {aprobadas} de {len(filas)} correctas en {total_seg / 60:.1f} min")
     print(f"Reporte:   {CARPETA / 'reporte.md'}")
+    lentas = sum(1 for f in filas for d, ok, m in f["comprobaciones"] if not ok and "límite" in m)
+    if lentas:
+        print(f"\n{lentas} prueba(s) superaron el límite de tiempo. Prueba con --sin-pensar "
+              f"o sube el límite con --limite 1200.")
     print("Si algo falló, pega el contenido de reporte.md en el chat para ajustar los prompts.")
 
 

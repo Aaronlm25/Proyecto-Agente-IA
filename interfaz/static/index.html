@@ -165,6 +165,11 @@
         <select id="ajusteModelo"></select>
       </label>
 
+      <label class="campo">
+        <span>Modelo para leer imágenes</span>
+        <select id="ajusteModeloVision"></select>
+      </label>
+
       <fieldset class="campo">
         <legend>Apariencia</legend>
         <div class="segmentado" role="radiogroup">
@@ -174,6 +179,13 @@
         </div>
       </fieldset>
 
+      <label class="interruptor">
+        <span>
+          <strong>Razonar antes de responder</strong>
+          <small>Más preciso con modelos como qwen3, pero bastante más lento.</small>
+        </span>
+        <input type="checkbox" id="ajustePensar">
+      </label>
       <label class="interruptor">
         <span>
           <strong>Pedir permiso antes de usar la terminal</strong>

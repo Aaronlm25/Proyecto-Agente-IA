@@ -726,7 +726,9 @@ async function abrirAjustes() {
   cerrarLateral();
   const a = estado.ajustes;
   const select = $("#ajusteModelo");
+  const selectVision = $("#ajusteModeloVision");
   select.replaceChildren(new Option(a.modelo, a.modelo, true, true));
+  selectVision.replaceChildren(new Option(a.modelo_vision, a.modelo_vision, true, true));
   ui.dAjustes.querySelectorAll('input[name="tema"]').forEach((r) => { r.checked = r.value === a.tema; });
   $("#ajusteConfirmaciones").checked = !!a.confirmaciones;
   $("#ajustePlan").checked = !!a.modo_plan;
@@ -736,6 +738,7 @@ async function abrirAjustes() {
   try {
     const r = await api("/api/modelos");
     select.replaceChildren(...r.modelos.map((m) => new Option(m, m, m === a.modelo, m === a.modelo)));
+    selectVision.replaceChildren(...r.modelos.map((m) => new Option(m, m, m === a.modelo_vision, m === a.modelo_vision)));
   } catch { /* Ollama apagado: se queda el modelo actual */ }
 }
 
@@ -746,6 +749,7 @@ ui.dAjustes.addEventListener("close", () => {
   }
   guardarAjustes({
     modelo: $("#ajusteModelo").value,
+    modelo_vision: $("#ajusteModeloVision").value,
     tema: ui.dAjustes.querySelector('input[name="tema"]:checked')?.value || "system",
     confirmaciones: $("#ajusteConfirmaciones").checked,
     modo_plan: $("#ajustePlan").checked,

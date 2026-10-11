@@ -17,10 +17,8 @@ import json
 import inspect
 from types import SimpleNamespace
 
-import ollama
-
 import registro
-from agentes import config
+from agentes import config, modelo
 
 
 class Contexto:
@@ -134,7 +132,7 @@ class Agente:
     def _llamar_modelo(self, mensajes, ctx, on_token):
         """Una llamada al modelo con streaming. Devuelve (contenido, tool_calls, info, cancelado)."""
         contenido, tool_calls, info = "", [], {}
-        respuesta = ollama.chat(
+        respuesta = modelo.chat(
             model=self.modelo, messages=mensajes,
             tools=self.esquemas or None, stream=True,
             options={"num_ctx": config.NUM_CTX, "temperature": self.temperatura},
