@@ -731,6 +731,7 @@ async function abrirAjustes() {
   selectVision.replaceChildren(new Option(a.modelo_vision, a.modelo_vision, true, true));
   ui.dAjustes.querySelectorAll('input[name="tema"]').forEach((r) => { r.checked = r.value === a.tema; });
   $("#ajusteConfirmaciones").checked = !!a.confirmaciones;
+  $("#ajustePensar").checked = !!a.pensar;
   $("#ajustePlan").checked = !!a.modo_plan;
   $("#ajusteAltavoz").checked = !!a.altavoz;
   ui.dAjustes.returnValue = "";
@@ -752,6 +753,7 @@ ui.dAjustes.addEventListener("close", () => {
     modelo_vision: $("#ajusteModeloVision").value,
     tema: ui.dAjustes.querySelector('input[name="tema"]:checked')?.value || "system",
     confirmaciones: $("#ajusteConfirmaciones").checked,
+    pensar: $("#ajustePensar").checked,
     modo_plan: $("#ajustePlan").checked,
     altavoz: $("#ajusteAltavoz").checked,
   });

@@ -1,6 +1,7 @@
 {
   "modelo": "qwen3:8b",
   "modelo_vision": "qwen2.5vl:7b",
+  "pensar": false,
   "tema": "dark",
   "confirmaciones": true,
   "altavoz": false,
