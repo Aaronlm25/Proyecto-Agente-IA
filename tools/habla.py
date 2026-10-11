@@ -1,5 +1,4 @@
 import os
-import wave
 import subprocess
 import tempfile
 

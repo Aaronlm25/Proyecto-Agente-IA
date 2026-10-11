@@ -1,6 +1,10 @@
 name: mi-agente-ia
 channels:
-  - defaults
+  - conda-forge
 dependencies:
   - python=3.11
-prefix: /home/aaron/miniconda3/envs/mi-agente-ia
+  - tk
+  - portaudio
+  - pip
+  - pip:
+      - -r requirements.txt

@@ -4,8 +4,8 @@ tools/memoria.py
 Memoria persistente de datos del usuario: cosas que el agente debe
 recordar entre sesiones (nombre, preferencias, proyectos, etc.).
 
-Se guarda en recuerdos.json. Es distinto de la memoria de conversacion
-(memoria.json) que ya maneja agente.py: esto son HECHOS, no el historial.
+Se guarda en tools/recuerdos.json (no se sube al repo). Es distinto del
+historial de chats (carpeta chats/): esto son HECHOS, no conversaciones.
 
 Devuelve STRINGS para encajar con agente.py.
 """

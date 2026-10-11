@@ -1,6 +1,11 @@
-from pathlib import Path
+"""
+tools/configuracion.py
 
-BASE_DIR = Path(__file__).resolve().parent.parent / "workspace"
+Genera archivos de configuración base para un proyecto.
+Nunca sobrescribe archivos que ya existen (para no borrar tu .env, etc.).
+"""
+
+from tools.filesystem import ruta_segura, BASE_DIR
 
 PLANTILLAS = {
     "python": {
@@ -17,15 +22,25 @@ PLANTILLAS = {
 
 def generar_config(proyecto: str, tipo: str = "python") -> str:
     """Genera archivos de configuración para un proyecto según su tipo (python o web)."""
+    tipo = (tipo or "python").lower().strip()
     if tipo not in PLANTILLAS:
         return f"Tipo desconocido '{tipo}'. Disponibles: {', '.join(PLANTILLAS)}"
 
-    base = (BASE_DIR / proyecto).resolve()
+    base = ruta_segura(proyecto)
     base.mkdir(parents=True, exist_ok=True)
 
-    creados = []
+    creados, omitidos = [], []
     for nombre, contenido in PLANTILLAS[tipo].items():
-        (base / nombre).write_text(contenido)
+        destino = ruta_segura(base.relative_to(BASE_DIR) / nombre)
+        if destino.exists():
+            omitidos.append(nombre)
+            continue
+        destino.write_text(contenido, encoding="utf-8")
         creados.append(nombre)
 
-    return f"Configuración '{tipo}' generada en '{proyecto}': {', '.join(creados)}"
+    msg = f"Configuración '{tipo}' en '{base.relative_to(BASE_DIR)}'."
+    if creados:
+        msg += f" Creados: {', '.join(creados)}."
+    if omitidos:
+        msg += f" Ya existían (no se tocaron): {', '.join(omitidos)}."
+    return msg

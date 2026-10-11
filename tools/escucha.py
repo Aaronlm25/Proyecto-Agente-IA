@@ -1,11 +1,10 @@
-import os
 import json
 import queue
-import audioop
 
-RUTA_MODELO = os.path.join(
-    os.path.dirname(__file__), "..", "modelos", "vosk-model-small-es-0.42"
-)
+import numpy as np
+
+# Reutilizamos el MISMO modelo cargado por voz.py (antes se cargaba dos veces).
+from tools.voz import _cargar_modelo
 
 # --- Valores a calibrar según tu micrófono y tu cuarto ---
 UMBRAL_SILENCIO = 8000      # volumen por debajo del cual se considera "silencio"
@@ -16,17 +15,11 @@ SEGUNDOS_MAX = 15          # límite de seguridad por si nunca hay silencio
 SAMPLERATE = 16000
 BLOQUE = 4000  # muestras por bloque (~0.25 s)
 
-_modelo = None
 
-
-def _cargar_modelo():
-    from vosk import Model
-    global _modelo
-    if _modelo is None:
-        if not os.path.isdir(RUTA_MODELO):
-            raise FileNotFoundError("No se encontró el modelo de voz en " + RUTA_MODELO)
-        _modelo = Model(RUTA_MODELO)
-    return _modelo
+def _volumen(datos: bytes) -> float:
+    """Volumen RMS de un bloque de audio int16 (reemplaza a audioop, que ya no existe en Python 3.13)."""
+    muestras = np.frombuffer(datos, dtype=np.int16).astype(np.float64)
+    return float(np.sqrt(np.mean(muestras ** 2))) if muestras.size else 0.0
 
 
 def escuchar_una_frase(parar):
@@ -62,7 +55,7 @@ def escuchar_una_frase(parar):
             contados += 1
 
             # Mide el volumen del bloque
-            volumen = audioop.rms(datos, 2)
+            volumen = _volumen(datos)
             if volumen >= UMBRAL_SILENCIO:
                 hubo_voz = True
                 bloques_silencio = 0

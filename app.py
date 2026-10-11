@@ -1,11 +1,13 @@
 import os
 import sys
 import json
+import queue
 import threading
 import customtkinter as ctk
 from tkinter import filedialog, messagebox
 import agente
 import lectura
+from agentes import config, root
 
 
 def ruta_recurso(rel):
@@ -20,7 +22,7 @@ FUENTE = "Inter"
 
 # Extensiones que se tratan como datos o imágenes: en vez de volcar su
 # contenido como texto, le pasamos la RUTA al agente para que use sus tools.
-EXT_RUTA_DIRECTA = (".csv", ".tsv", ".xlsx", ".xls", ".png", ".jpg", ".jpeg", ".webp", ".gif")
+EXT_RUTA_DIRECTA = (".csv", ".tsv", ".xlsx", ".xls", ".png", ".jpg", ".jpeg", ".webp")
 
 # Cada color es una tupla (claro, oscuro): CustomTkinter usa el primero en
 # tema "light" y el segundo en tema "dark", y cambia solo al cambiar el tema.
@@ -34,10 +36,11 @@ COLOR_GRABANDO = ("#e85d52", "#fb4934")
 COLOR_VOZ_ON = ("#5fa86a", "#8ec07c")
 COLOR_CHAT_ACTIVO = ("#c3d2e2", "#3a4a5e")
 COLOR_ADJUNTO = ("#6b6f7d", "#9aa0b5")
+COLOR_DELEGACION = ("#c9c3e6", "#3d3560")
 
 
 def cargar_ajustes():
-    base = {"modelo": agente.MODELO, "tema": "dark", "confirmaciones": True,
+    base = {"modelo": config.MODELO, "tema": "dark", "confirmaciones": True,
             "altavoz": False, "modo_plan": False}
     if os.path.exists(RUTA_AJUSTES):
         try:
@@ -52,9 +55,15 @@ class ChatApp(ctk.CTk):
     def __init__(self):
         super().__init__()
 
+        # Tkinter NO es seguro entre hilos: los hilos de trabajo nunca tocan la
+        # interfaz directamente, sino que dejan tareas en esta cola y el hilo
+        # principal las ejecuta (ver _en_ui y _procesar_cola).
+        self._cola_ui = queue.Queue()
+        self.after(30, self._procesar_cola)
+
         # ----- Ajustes -----
         self.ajustes = cargar_ajustes()
-        agente.MODELO = self.ajustes["modelo"]
+        config.MODELO = self.ajustes["modelo"]
         ctk.set_appearance_mode(self.ajustes["tema"])
         ctk.set_default_color_theme("green")
         self.confirmaciones = self.ajustes["confirmaciones"]
@@ -122,7 +131,7 @@ class ChatApp(ctk.CTk):
 
         ctk.CTkLabel(panel, text="Agente de IA Local", font=(FUENTE, 20, "bold"),
                      text_color=COLOR_TEXTO).pack(pady=(18, 4))
-        ctk.CTkLabel(panel, text="Tu asistente local para crear proyectos, notas y eventos",
+        ctk.CTkLabel(panel, text="Coordinador multiagente: archivos, notas, terminal, web y datos",
                      font=(FUENTE, 12), text_color=COLOR_ADJUNTO).pack(pady=(0, 10))
 
         self.chat = ctk.CTkScrollableFrame(panel, fg_color="transparent")
@@ -181,6 +190,25 @@ class ChatApp(ctk.CTk):
         self.bind("<Control-c>", self._atajo_copiar)
         self.entrada.bind("<Up>", self._reusar_ultimo)
 
+    # ----- Comunicación segura entre hilos -----
+
+    def _en_ui(self, funcion, *args):
+        """Pide que `funcion(*args)` se ejecute en el hilo de la interfaz.
+        Se puede llamar desde cualquier hilo."""
+        self._cola_ui.put((funcion, args))
+
+    def _procesar_cola(self):
+        while True:
+            try:
+                funcion, args = self._cola_ui.get_nowait()
+            except queue.Empty:
+                break
+            try:
+                funcion(*args)
+            except Exception as e:
+                print("Error en la interfaz:", e)
+        self.after(30, self._procesar_cola)
+
     # ----- Render -----
 
     def _render_chat(self):
@@ -201,6 +229,8 @@ class ChatApp(ctk.CTk):
             color, anclaje = COLOR_USUARIO, "e"
         elif tipo == "accion":
             color, anclaje = COLOR_ACCION, "w"
+        elif tipo == "delegacion":
+            color, anclaje = COLOR_DELEGACION, "w"
         else:
             color, anclaje = COLOR_AGENTE, "w"
 
@@ -246,7 +276,17 @@ class ChatApp(ctk.CTk):
                           command=lambda cid=c["id"]: self.cambiar_chat(cid)
                           ).pack(side="left", fill="x", expand=True)
 
+    def _ocupado(self):
+        """True si el agente está trabajando (no se debe cambiar de chat ni enviar)."""
+        if self.generando or self.modo_conversacion:
+            self._burbuja("Espera a que el agente termine (o pulsa Esc / Detener) "
+                          "antes de cambiar de chat.", "accion")
+            return True
+        return False
+
     def nuevo_chat(self):
+        if self._ocupado():
+            return
         self.chat_actual = agente.crear_chat()
         self.mensajes = agente.cargar_chat(self.chat_actual)
         self._render_chat()
@@ -254,7 +294,7 @@ class ChatApp(ctk.CTk):
         self.entrada.focus()
 
     def cambiar_chat(self, chat_id):
-        if chat_id == self.chat_actual:
+        if chat_id == self.chat_actual or self._ocupado():
             return
         self.chat_actual = chat_id
         self.mensajes = agente.cargar_chat(chat_id)
@@ -263,6 +303,8 @@ class ChatApp(ctk.CTk):
         self.entrada.focus()
 
     def borrar_chat(self, chat_id):
+        if self._ocupado():
+            return
         agente.borrar_chat(chat_id)
         if chat_id == self.chat_actual:
             chats = agente.listar_chats()
@@ -315,7 +357,7 @@ class ChatApp(ctk.CTk):
             )
             evento.set()
 
-        self.after(0, preguntar)
+        self._en_ui(preguntar)
         evento.wait()
         return bool(self._conf_resultado)
 
@@ -323,7 +365,10 @@ class ChatApp(ctk.CTk):
 
     def enviar(self):
         peticion = self.entrada.get().strip()
-        if not peticion:
+        if not peticion or self.generando:
+            return
+        if self.modo_conversacion:
+            self._burbuja("Detén el modo conversación para escribir.", "accion")
             return
         self.entrada.delete(0, "end")
 
@@ -366,7 +411,7 @@ class ChatApp(ctk.CTk):
 
     def _trabajar(self, peticion):
         try:
-            respuesta, _ = agente.procesar(
+            respuesta, _ = root.procesar(
                 peticion, self.mensajes,
                 confirmador=self._confirmar,
                 on_token=self._on_token,
@@ -376,11 +421,10 @@ class ChatApp(ctk.CTk):
             )
         except Exception as e:
             respuesta = f"Ocurrió un error: {e}"
-            self.after(0, self._burbuja, respuesta, "accion")
-        self.after(0, self._fin_envio, respuesta)
+        self._en_ui(self._fin_envio, respuesta)
 
     def _on_token(self, delta):
-        self.after(0, self._append_token, delta)
+        self._en_ui(self._append_token, delta)
 
     def _append_token(self, delta):
         if self.label_actual is None:
@@ -391,7 +435,12 @@ class ChatApp(ctk.CTk):
         self.after(20, self._scroll_abajo)
 
     def _on_accion(self, linea):
-        self.after(0, self._burbuja, f"-> {linea}", "accion")
+        self._en_ui(self._mostrar_accion, linea)
+
+    def _mostrar_accion(self, linea):
+        tipo = "delegacion" if linea.startswith("[root] →") else "accion"
+        self._burbuja(linea if tipo == "delegacion" else f"-> {linea}", tipo)
+        self.label_actual = None  # el siguiente texto del root va en una burbuja nueva
 
     def _fin_envio(self, respuesta):
         self.generando = False
@@ -443,10 +492,10 @@ class ChatApp(ctk.CTk):
                           fg_color=COLOR_USUARIO, font=(FUENTE, 13, "bold")).pack(side="right")
             win.protocol("WM_DELETE_WINDOW", lambda: resolver(False))
 
-        self.after(0, preguntar)
+        self._en_ui(preguntar)
         evento.wait()
         if self._plan_resultado:
-            self.after(0, self._burbuja, f"Plan aprobado:\n{plan}", "accion")
+            self._en_ui(self._burbuja, f"Plan aprobado:\n{plan}", "accion")
         return bool(self._plan_resultado)
 
     # ----- Atajos de teclado -----
@@ -506,8 +555,8 @@ class ChatApp(ctk.CTk):
             texto = self.grabadora.detener()
         except Exception as e:
             texto = ""
-            self.after(0, lambda: self._burbuja(f"Error al transcribir: {e}", "accion"))
-        self.after(0, self._poner_texto_voz, texto)
+            self._en_ui(self._burbuja, f"Error al transcribir: {e}", "accion")
+        self._en_ui(self._poner_texto_voz, texto)
 
     def _poner_texto_voz(self, texto):
         self.boton_voz.configure(state="normal", text="Voz", fg_color=COLOR_USUARIO)
@@ -519,6 +568,8 @@ class ChatApp(ctk.CTk):
     # ----- Modo conversación manos libres -----
 
     def alternar_conversacion(self):
+        if not self.modo_conversacion and self.generando:
+            return
         if not self.modo_conversacion:
             self.modo_conversacion = True
             self.voz_activa = True
@@ -526,8 +577,11 @@ class ChatApp(ctk.CTk):
             self.boton_conversacion.configure(text="Detener conversación", fg_color=COLOR_GRABANDO)
             threading.Thread(target=self._bucle_conversacion, daemon=True).start()
         else:
-            self.modo_conversacion = False
-            self.boton_conversacion.configure(text="Iniciar modo conversación", fg_color=COLOR_USUARIO)
+            self._parar_conversacion()
+
+    def _parar_conversacion(self):
+        self.modo_conversacion = False
+        self.boton_conversacion.configure(text="Iniciar modo conversación", fg_color=COLOR_USUARIO)
 
     def _bucle_conversacion(self):
         from tools import escucha, habla
@@ -535,23 +589,24 @@ class ChatApp(ctk.CTk):
             try:
                 texto = escucha.escuchar_una_frase(parar=lambda: not self.modo_conversacion)
             except Exception as e:
-                self.after(0, lambda: self._burbuja(f"Error al escuchar: {e}", "accion"))
+                self._en_ui(self._burbuja, f"Error al escuchar: {e}", "accion")
+                self._en_ui(self._parar_conversacion)
                 break
             if not self.modo_conversacion:
                 break
             if not texto:
                 continue
             if texto.lower().strip() in ("salir", "detente", "adiós", "adios", "para", "para ya"):
-                self.after(0, self.alternar_conversacion)
+                self._en_ui(self.alternar_conversacion)
                 break
 
-            self.after(0, self._burbuja, texto, "usuario")
+            self._en_ui(self._burbuja, texto, "usuario")
             try:
-                respuesta, acciones = agente.procesar(
+                respuesta, acciones = root.procesar(
                     texto, self.mensajes, confirmador=self._confirmar)
             except Exception as e:
                 respuesta, acciones = f"Ocurrió un error: {e}", []
-            self.after(0, self._mostrar_conversacion, respuesta, acciones)
+            self._en_ui(self._mostrar_conversacion, respuesta, acciones)
             if respuesta:
                 try:
                     habla.decir(respuesta)
@@ -583,10 +638,10 @@ class ChatApp(ctk.CTk):
         ctk.CTkLabel(win, text="Modelo de Ollama", font=(FUENTE, 12),
                      text_color=COLOR_TEXTO, anchor="w").pack(padx=20, anchor="w")
         modelos = agente.modelos_disponibles()
-        if agente.MODELO not in modelos:
-            modelos = [agente.MODELO] + modelos
+        if config.MODELO not in modelos:
+            modelos = [config.MODELO] + modelos
         menu_modelo = ctk.CTkOptionMenu(win, values=modelos)
-        menu_modelo.set(agente.MODELO)
+        menu_modelo.set(config.MODELO)
         menu_modelo.pack(padx=20, pady=(2, 12), fill="x")
 
         ctk.CTkLabel(win, text="Tema", font=(FUENTE, 12),
@@ -611,7 +666,7 @@ class ChatApp(ctk.CTk):
             switch_plan.select()
 
         def guardar():
-            agente.MODELO = menu_modelo.get()
+            config.MODELO = menu_modelo.get()
             tema = menu_tema.get()
             ctk.set_appearance_mode(tema)
             self.configure(fg_color=COLOR_FONDO)  # refuerza el fondo de la raíz
@@ -621,7 +676,7 @@ class ChatApp(ctk.CTk):
             self.boton_altavoz.configure(
                 text=("Altavoz: on" if self.voz_activa else "Altavoz: off"),
                 fg_color=(COLOR_VOZ_ON if self.voz_activa else COLOR_USUARIO))
-            self.ajustes = {"modelo": agente.MODELO, "tema": tema,
+            self.ajustes = {"modelo": config.MODELO, "tema": tema,
                             "confirmaciones": self.confirmaciones, "altavoz": self.voz_activa,
                             "modo_plan": self.modo_plan}
             try:
