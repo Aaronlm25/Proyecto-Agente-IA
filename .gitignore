@@ -7,3 +7,11 @@ __pycache__/
 .env
 config/secrets.json
 memoria.json
+pruebas_reales/
+.pytest_cache/
+
+.ventana/
+
+tools/recuerdos.json
+
+modelos/*.zip

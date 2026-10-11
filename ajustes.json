@@ -2,5 +2,6 @@
   "modelo": "qwen2.5:7b",
   "tema": "dark",
   "confirmaciones": true,
-  "altavoz": false
+  "altavoz": false,
+  "modo_plan": false
 }

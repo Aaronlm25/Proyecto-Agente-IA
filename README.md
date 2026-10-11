@@ -168,6 +168,8 @@ Inicializa git en tienda-online y haz un commit
 ├── lectura.py              # Lee PDFs y texto adjuntos
 ├── registro.py             # Logs en logs/agente.log
 ├── tests/                  # Pruebas con modelo simulado (no necesitan Ollama)
+├── scripts/
+│   └── probar_con_ollama.py # Pruebas con tu Ollama real + reporte
 ├── modelos/  voces/        # Modelos de voz
 └── workspace/              # Salida del agente (no se sube al repo)
 ```
@@ -197,3 +199,17 @@ pytest -q
 ```
 
 Usan un modelo simulado, así que no necesitan Ollama encendido.
+
+### Pruebas con Ollama real
+
+```bash
+python scripts/probar_con_ollama.py            # 16 peticiones reales, con comprobaciones
+python scripts/probar_con_ollama.py --lista    # ver cuáles son
+python scripts/probar_con_ollama.py --solo 4,8 --ver
+python scripts/probar_con_ollama.py --modelo qwen2.5:14b --repetir 3
+```
+
+Comprueba de verdad lo que pasó (si eligió al especialista correcto, si el `.ics` quedó
+con la fecha de mañana, si el análisis dio el número correcto, si pidió permiso antes
+de usar la terminal...) y deja un reporte en `pruebas_reales/<fecha>/reporte.md`.
+Trabaja en una carpeta aparte: no toca tu `workspace/` ni tus recuerdos.
